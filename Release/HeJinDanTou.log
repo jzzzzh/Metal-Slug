@@ -1,0 +1,17 @@
+﻿  HeJinDanTou.cpp
+E:\Game\HeJinDanTou\HeJinDanTou\HeJinDanTou.cpp(1203,11): warning C4244: “=”: 从“double”转换到“int”，可能丢失数据
+E:\Game\HeJinDanTou\HeJinDanTou\HeJinDanTou.cpp(1240,11): warning C4244: “=”: 从“double”转换到“int”，可能丢失数据
+E:\Game\HeJinDanTou\HeJinDanTou\HeJinDanTou.cpp(1268,11): warning C4244: “=”: 从“double”转换到“int”，可能丢失数据
+E:\Game\HeJinDanTou\HeJinDanTou\HeJinDanTou.cpp(1298,11): warning C4244: “=”: 从“double”转换到“int”，可能丢失数据
+E:\Game\HeJinDanTou\HeJinDanTou\HeJinDanTou.cpp(1315,11): warning C4244: “=”: 从“double”转换到“int”，可能丢失数据
+E:\Game\HeJinDanTou\HeJinDanTou\HeJinDanTou.cpp(1491,12): warning C4244: “参数”: 从“time_t”转换到“unsigned int”，可能丢失数据
+E:\Game\HeJinDanTou\HeJinDanTou\HeJinDanTou.cpp(2613,36): warning C4244: “参数”: 从“double”转换到“int”，可能丢失数据
+E:\Game\HeJinDanTou\HeJinDanTou\HeJinDanTou.cpp(2613,22): warning C4244: “参数”: 从“double”转换到“int”，可能丢失数据
+E:\Game\HeJinDanTou\HeJinDanTou\HeJinDanTou.cpp(2619,33): warning C4244: “参数”: 从“double”转换到“int”，可能丢失数据
+E:\Game\HeJinDanTou\HeJinDanTou\HeJinDanTou.cpp(2619,19): warning C4244: “参数”: 从“double”转换到“int”，可能丢失数据
+  正在生成代码
+  1 of 1544 functions (<0.1%) were compiled, the rest were copied from previous compilation.
+    0 functions were new in current compilation
+    1 functions had inline decision re-evaluated but remain unchanged
+  已完成代码的生成
+  HeJinDanTou.vcxproj -> E:\Game\HeJinDanTou\Release\HeJinDanTou.exe
