@@ -7,12 +7,14 @@
 // 添加胜利失败展示 okk
 // 添加音乐 okk
 // 显示鼠标和子弹跟随鼠标发射 ok
-// 士兵死了要有//动画 okk
-// // 添加进入游戏和退出游戏
-// //添加爆炸效果
+// 士兵死了要有动画 okk
+// 飞机按空格释放炸弹 okk
+// //添加爆炸效果okk
+// 添加进入游戏和退出游戏 okk
 // 添加捡子弹和子弹容量
 // 打完一个可以往右移动
 // 添加两张地图
+
 #include <graphics.h>
 #include <iostream>
 #include <conio.h>
@@ -28,14 +30,18 @@
 #pragma warning(disable : 4996)
 #pragma comment(lib, "Winmm.lib")
 using namespace std;
-const int roundNum = 3;
-int roundnum = 0;
+
 int WIDTH = 1920;		 // 画面宽度
 int HEIGHT = 1080;		 // 画面高度
 #define MaxBulletNum 200 // 最多子弹个数
 // const int MAXLIFE = 100;
 const int bk1_Width = 8800;
 const int bk1_Height = 1080;
+const int bk2_Width = 543;
+const int bk2_Height = 193;
+const int bk3_Width = 1134;
+const int bk3_Height = 193;
+
 const int TIME = 100;
 const int ldbNum = 5;
 const int zjbdyqiang = 3;
@@ -101,8 +107,9 @@ const int oldmanbangNum = 3;
 const int oldmanfreeNum = 4;
 const int shibingdieNum = 5;
 const int shibingdie2Num = 8;
-//const int roundkillnum = 10;
-const int roundkillnum = 4;
+const int roundkillnum = 10;
+//const int roundkillnum = 4;
+const int feijidanboomnum = 8;
 const int zidanweizhi = 10;
 int GameTime = 0;
 int roundtruekillnum = 0;
@@ -141,8 +148,24 @@ IMAGE im_bossstand[bossstandNum];
 IMAGE im_bossanger[bossAngerNum];
 IMAGE im_oldmanbang[oldmanbangNum];
 IMAGE im_oldmanfree[oldmanfreeNum];
+IMAGE im_zidanboom;
+IMAGE im_feijidanBoom[feijidanboomnum];
 IMAGE WIN;
 IMAGE FAIL;
+
+IMAGE IM_MENU;
+IMAGE IM_ROUND1;
+IMAGE IM_ROUND2;
+IMAGE IM_ROUND3;
+IMAGE PUTONGMS;
+IMAGE WUJINGMS;
+IMAGE SELECT;
+
+int page = 0;
+int mode = 0;
+const int roundNum = 3;
+int roundnum = 0;
+
 int gametime = 0;
 int finshedtime = 0;
 TCHAR filename[100];
@@ -802,6 +825,37 @@ public:
 	}
 };
 list<liudanpaoshou> ldps;
+class feijidanboom {
+public:
+	int x;
+	int y;
+	int time;
+	feijidanboom() {
+		x = 0;
+		y = 0;
+		time = 0;
+	}
+	feijidanboom(int xx, int yy)
+	{
+		x = xx;
+		y = yy;
+		time = 0;
+	}
+	bool show()
+	{
+		if (time < feijidanboomnum)
+		{
+			putimagePng(x, y, &im_feijidanBoom[time]);
+			time++;
+			return true;
+		}
+		else
+		{
+			return false;
+		}
+	}
+};
+list<feijidanboom> feijidanboomlist;
 class feijidan
 {
 public:
@@ -826,6 +880,7 @@ public:
 			if (y >= groundy)
 			{
 				is_bombed = true;
+				feijidanboomlist.push_back(feijidanboom(x,y));
 			}
 		}
 	}
@@ -940,6 +995,13 @@ public:
 		x = xx;
 		y = yy;
 		pos = poss;
+	}
+	void normalupdate()
+	{
+		for (auto i = fjdlist.begin(); i != fjdlist.end(); i++)
+		{
+			(*i).update();
+		}
 	}
 	void show()
 	{
@@ -1486,13 +1548,54 @@ public:
 	}
 };
 LetterE E;
+class zidanboom {
+public:
+	int x;
+	int y;
+	int pos;
+	int time;
+	zidanboom(){
+		x = 0;
+		y = 0;
+		time = 5;
+		pos = 0;
+	}
+	zidanboom(int xx, int yy, int ppos)
+	{
+		x = xx;
+		y = yy;
+		pos = ppos;
+		time = 5;
+	}
+	bool show()
+	{
+		if (time > 0)
+		{
+			if (pos == 1)
+			{
+				putimagePng(x+10, y+20, &im_zidanboom);
+			}
+			else if(pos == 0)
+			{
+				putToggleImagePng(x-10, y+20, &im_zidanboom);
+			}
+			time--;
+			return true;
+		}
+		else
+		{
+			return false;
+		}
+	}
+};
+list<zidanboom> zidanboomlist;
 void startup() //  初始化函数
 {
 	srand(time(0));												// 初始化随机种子
 	loadimage(&im_fi, _T("firstImg.jpg"), WIDTH, HEIGHT, true); // 导入背景图片
 	loadimage(&im_bk1, _T("background1.png"), bk1_Width * HEIGHT / bk1_Height, HEIGHT, true);
-	loadimage(&im_bk2, _T("background2.png"), bk1_Width * HEIGHT / bk1_Height, HEIGHT, true);
-	loadimage(&im_bk3, _T("background3.png"), bk1_Width * HEIGHT / bk1_Height, HEIGHT, true);
+	loadimage(&im_bk2, _T("background2.png"),  bk2_Width * HEIGHT / bk2_Height, HEIGHT, true);
+	loadimage(&im_bk3, _T("background3.png"), bk3_Width * HEIGHT / bk3_Height, HEIGHT, true);
 	loadimage(&zidan, _T("zidan.png"));
 	loadimage(&im_feijidan, _T("./feiji/zhadan.png"));
 	loadimage(&Dazidan, _T("dazidan.png"));
@@ -1507,7 +1610,20 @@ void startup() //  初始化函数
 	loadimage(&WIN, _T("win.png"));
 	loadimage(&FAIL, _T("fail.png"));
 	loadimage(&im_LetterE, _T("E.png"));
+	loadimage(&im_zidanboom, _T("boom.png"));
+	loadimage(&IM_MENU, _T("menu.png"), WIDTH, HEIGHT, true);
+	loadimage(&IM_ROUND1, _T("round1.png"));
+	loadimage(&IM_ROUND2, _T("round2.png"));
+	loadimage(&IM_ROUND3, _T("round3.png"));
+	loadimage(&PUTONGMS, _T("putong.png"));
+	loadimage(&WUJINGMS, _T("wujing.png"));
+	loadimage(&SELECT, _T("select.png"));
 	myfj.y = groundy;
+	for (int i = 0; i < feijidanboomnum; i++)
+	{
+		swprintf_s(filename, _T("./feiji/bomb (%d).png"), i + 1);
+		loadimage(&im_feijidanBoom[i], filename);
+	}
 	for (int i = 0; i < ldbNum; i++)
 	{
 		swprintf_s(filename, _T("./liudan/liudan (%d).png"), i + 1);
@@ -1655,6 +1771,82 @@ void beforeshow() // 绘制函数
 	FlushBatchDraw();		// 批量绘制
 	Sleep(1000);			// 暂停
 	cleardevice();
+	while (page == 0)
+	{
+		putimage(0, 0, &IM_MENU);
+		putimagePng(0.4 * WIDTH, 0.5 * HEIGHT, &PUTONGMS);
+		putimagePng(0.6 * WIDTH, 0.5 * HEIGHT, &WUJINGMS);
+		if (mode == 0)
+		{
+			putimagePng(0.4 * WIDTH + 30, 0.5 * HEIGHT - 50, &SELECT);
+		}
+		else
+		{
+			putimagePng(0.6 * WIDTH + 30, 0.5 * HEIGHT - 50, &SELECT);
+		}
+		FlushBatchDraw(); // 批量绘制
+		if (_kbhit()) //	If a key is pressed
+		{
+			char key;
+			key = _getch(); //	Obtain key info
+			if (GetAsyncKeyState(' '))
+			{
+				mode = 1 - mode;
+			}
+			if (GetAsyncKeyState(VK_RETURN))
+			{
+				if (mode == 0)
+					page = 1;
+				else
+				{
+					page = 2;
+				}
+			}
+
+		}
+		Sleep(100);		  // 暂停
+	}
+	while (page == 1 && mode == 0)
+	{
+		putimage(0, 0, &IM_MENU);
+		putimagePng(0.4 * WIDTH, 0.5 * HEIGHT, &PUTONGMS);
+		putimagePng(0.6 * WIDTH, 0.5 * HEIGHT, &WUJINGMS);
+		putimagePng(0.4 * WIDTH + 30, 0.5 * HEIGHT - 50, &SELECT);
+		putimagePng(0.3 * WIDTH, 0.7 * HEIGHT, &IM_ROUND1);
+		putimagePng(0.5 * WIDTH, 0.7 * HEIGHT, &IM_ROUND2);
+		putimagePng(0.7 * WIDTH, 0.7 * HEIGHT, &IM_ROUND3);
+		if (roundnum == 0)
+		{
+			putimagePng(0.3 * WIDTH + 30, 0.7 * HEIGHT - 50, &SELECT);
+		}
+		else if(roundnum == 1)
+		{
+			putimagePng(0.5 * WIDTH + 30, 0.7 * HEIGHT - 50, &SELECT);
+		}
+		else
+		{
+			putimagePng(0.7 * WIDTH + 30, 0.7 * HEIGHT - 50, &SELECT);
+		}
+		FlushBatchDraw(); // 批量绘制
+		if (_kbhit()) //	If a key is pressed
+		{
+			char key;
+			key = _getch(); //	Obtain key info
+			if (GetAsyncKeyState(' '))
+			{
+				roundnum = ( roundnum + 1 ) % 3;
+			}
+			if (GetAsyncKeyState(VK_RETURN))
+			{
+				page = 2;
+			}
+			if (GetAsyncKeyState(VK_ESCAPE))
+			{
+				page = 0;
+			}
+		}
+		Sleep(100);		  // 暂停
+	}
 }
 bool checkIsDangZhu(int x, int y, int pos)
 {
@@ -1690,12 +1882,12 @@ bool checkIsDangZhu(int x, int y, int pos)
 void show() // 绘制函数
 {
 	gametime++;
-	// if(roundnum == 0)
+	 if(roundnum == 0)
 	putimage(0, 0, &im_bk1); // 显示背景
-	// if (roundnum == 1)
-	// putimage(0, 0, &im_bk2);
-	// if (roundnum == 2)
-	// putimage(0, 0, &im_bk3);
+	 if (roundnum == 1)
+	 putimage(0, 0, &im_bk2);
+	 if (roundnum == 2)
+	 putimage(0, 0, &im_bk3);
 	for (auto i = zj.zidanlist.begin(); i != zj.zidanlist.end(); i++)
 	{
 		(*i).update();
@@ -1729,6 +1921,7 @@ void show() // 绘制函数
 		(*i).update();
 		(*i).show();
 	}
+	myfj.normalupdate();
 	for (auto i = rsldlist.begin(); i != rsldlist.end(); i++)
 	{
 		if (checkIsDangZhu((*i).x, (*i).y, (*i).pos) == false)
@@ -1741,25 +1934,7 @@ void show() // 绘制函数
 		zj.vy += my_g;
 	}
 
-	if (isBossShowed)
-	{
-		for (auto i = bosslist.begin(); i != bosslist.end(); i++)
-		{
-			(*i).show();
-		}
-		for (auto i = bossangerlist.begin(); i != bossangerlist.end(); i++)
-		{
-			(*i).show();
-		}
-		for (auto i = bossstandlist.begin(); i != bossstandlist.end(); i++)
-		{
-			(*i).show();
-		}
-		for (auto i = bossdielist.begin(); i != bossdielist.end(); i++)
-		{
-			(*i).show();
-		}
-	}
+
 	
 	for (auto i = die1manlist.begin(); i != die1manlist.end(); i++)
 	{
@@ -1790,6 +1965,25 @@ void show() // 绘制函数
 	{
 		E.show();
 	}
+	if (isBossShowed)
+	{
+		for (auto i = bosslist.begin(); i != bosslist.end(); i++)
+		{
+			(*i).show();
+		}
+		for (auto i = bossangerlist.begin(); i != bossangerlist.end(); i++)
+		{
+			(*i).show();
+		}
+		for (auto i = bossstandlist.begin(); i != bossstandlist.end(); i++)
+		{
+			(*i).show();
+		}
+		for (auto i = bossdielist.begin(); i != bossdielist.end(); i++)
+		{
+			(*i).show();
+		}
+	}
 	if (isRenzhiShowed)
 	{
 		for (auto i = oldmanbanglist.begin(); i != oldmanbanglist.end(); i++)
@@ -1799,6 +1993,20 @@ void show() // 绘制函数
 		for (auto i = oldmanfreelist.begin(); i != oldmanfreelist.end(); i++)
 		{
 			(*i).show();
+		}
+	}
+	for (auto i = zidanboomlist.begin(); i != zidanboomlist.end(); i++)
+	{
+		if ((*i).show() == false)
+		{
+			zidanboomlist.erase(i);
+		}
+	}
+	for (auto i = feijidanboomlist.begin(); i != feijidanboomlist.end(); i++)
+	{
+		if ((*i).show() == false)
+		{
+			feijidanboomlist.erase(i);
 		}
 	}
 	FlushBatchDraw(); // 批量绘制
@@ -1969,10 +2177,12 @@ void check()
 	{
 		int tmpx = (*k).x;
 		int tmpy = (*k).y;
+		int pos = (*k).shot_to;
 		bool t = checkZhangAiWu(tmpx, tmpy, dazidanshanghai);
 		if (t == true)
 		{
 			zj.dazidanlist.erase(k);
+			zidanboomlist.push_back(zidanboom(tmpx, tmpy, pos));
 		}
 		else
 		{
@@ -1982,6 +2192,7 @@ void check()
 				if ((tmpx > (*i).x - range_x && tmpx < (*i).x + range_x) && (tmpy > (*i).y - range_y && tmpy < (*i).y + range_y))
 				{
 					zj.dazidanlist.erase(k);
+					zidanboomlist.push_back(zidanboom(tmpx, tmpy, pos));
 					flag = true;
 					(*i).life -= dazidanshanghai;
 					if ((*i).life <= 0)
@@ -1998,6 +2209,7 @@ void check()
 				if ((tmpx > (*i).x - range_x && tmpx < (*i).x + range_x) && (tmpy > (*i).y - range_y && tmpy < (*i).y + range_y))
 				{
 					zj.dazidanlist.erase(k);
+					zidanboomlist.push_back(zidanboom(tmpx, tmpy, pos));
 					flag = true;
 					(*i).life -= dazidanshanghai;
 					if ((*i).life <= 0)
@@ -2014,6 +2226,7 @@ void check()
 				if ((tmpx > (*i).x - range_x && tmpx < (*i).x + range_x) && (tmpy > (*i).y - range_y && tmpy < (*i).y + range_y))
 				{
 					zj.dazidanlist.erase(k);
+					zidanboomlist.push_back(zidanboom(tmpx, tmpy, pos));
 					flag = true;
 					(*i).life -= dazidanshanghai;
 					if ((*i).life <= 0)
@@ -2030,6 +2243,7 @@ void check()
 				if ((tmpx > (*i).x - range_x && tmpx < (*i).x + range_x) && (tmpy > (*i).y - range_y && tmpy < (*i).y + range_y))
 				{
 					zj.dazidanlist.erase(k);
+					zidanboomlist.push_back(zidanboom(tmpx, tmpy, pos));
 					flag = true;
 					(*i).life -= dazidanshanghai;
 					if ((*i).life <= 0)
@@ -2046,6 +2260,7 @@ void check()
 				if ((tmpx > (*i).x - range_x && tmpx < (*i).x + range_x) && (tmpy > (*i).y - range_y && tmpy < (*i).y + range_y))
 				{
 					zj.dazidanlist.erase(k);
+					zidanboomlist.push_back(zidanboom(tmpx, tmpy, pos));
 					flag = true;
 					(*i).life -= dazidanshanghai;
 					if ((*i).life <= 0)
@@ -2062,10 +2277,12 @@ void check()
 	{
 		int tmpx = (*k).x;
 		int tmpy = (*k).y;
+		int pos = (*k).shot_to;
 		bool t = checkZhangAiWu(tmpx, tmpy, zidanshanghai);
 		if (t == true)
 		{
 			zj.zidanlist.erase(k);
+			zidanboomlist.push_back(zidanboom(tmpx, tmpy, pos));
 		}
 		else
 		{
@@ -2075,6 +2292,7 @@ void check()
 				if ((tmpx > (*i).x - range_x && tmpx < (*i).x + range_x) && (tmpy > (*i).y - range_y && tmpy < (*i).y + range_y))
 				{
 					zj.zidanlist.erase(k);
+					zidanboomlist.push_back(zidanboom(tmpx, tmpy, pos));
 					flag = true;
 					(*i).life -= zidanshanghai;
 					if ((*i).life <= 0)
@@ -2091,6 +2309,7 @@ void check()
 				if ((tmpx > (*i).x - range_x && tmpx < (*i).x + range_x) && (tmpy > (*i).y - range_y && tmpy < (*i).y + range_y))
 				{
 					zj.zidanlist.erase(k);
+					zidanboomlist.push_back(zidanboom(tmpx, tmpy, pos));
 					flag = true;
 					(*i).life -= zidanshanghai;
 					if ((*i).life <= 0)
@@ -2107,6 +2326,7 @@ void check()
 				if ((tmpx > (*i).x - range_x && tmpx < (*i).x + range_x) && (tmpy > (*i).y - range_y && tmpy < (*i).y + range_y))
 				{
 					zj.zidanlist.erase(k);
+					zidanboomlist.push_back(zidanboom(tmpx, tmpy, pos));
 					flag = true;
 					(*i).life -= zidanshanghai;
 					if ((*i).life <= 0)
@@ -2122,6 +2342,7 @@ void check()
 				if ((tmpx > (*i).x - range_x && tmpx < (*i).x + range_x) && (tmpy > (*i).y - range_y && tmpy < (*i).y + range_y))
 				{
 					zj.zidanlist.erase(k);
+					zidanboomlist.push_back(zidanboom(tmpx, tmpy, pos));
 					flag = true;
 					(*i).life -= zidanshanghai;
 					if ((*i).life <= 0)
@@ -2138,6 +2359,7 @@ void check()
 				if ((tmpx > (*i).x - range_x && tmpx < (*i).x + range_x) && (tmpy > (*i).y - range_y && tmpy < (*i).y + range_y))
 				{
 					zj.zidanlist.erase(k);
+					zidanboomlist.push_back(zidanboom(tmpx, tmpy, pos));
 					flag = true;
 					(*i).life -= zidanshanghai;
 					if ((*i).life <= 0)
@@ -2150,6 +2372,86 @@ void check()
 			}
 		}
 
+	}
+	for (auto k = myfj.fjdlist.begin(); k != myfj.fjdlist.end(); k++)
+	{
+		int tmpx = (*k).x;
+		int tmpy = (*k).y;
+
+		bool flag = false;
+		for (auto i = qiangshoulist.begin(); i != qiangshoulist.end() && flag == false; i++)
+		{
+			if ((tmpx > (*i).x - range_x && tmpx < (*i).x + range_x) && (tmpy > (*i).y - range_y && tmpy < (*i).y + range_y))
+			{
+
+				(*i).life -= feijidanshanghai;
+				if ((*i).life <= 0)
+				{
+					addDiePerson((*i).x, (*i).y);
+					qiangshoulist.erase(i);
+				}
+				break;
+			}
+		}
+
+		for (auto i = ldps.begin(); i != ldps.end() && flag == false; i++)
+		{
+			if ((tmpx > (*i).x - range_x && tmpx < (*i).x + range_x) && (tmpy > (*i).y - range_y && tmpy < (*i).y + range_y))
+			{
+			
+				(*i).life -= feijidanshanghai;
+				if ((*i).life <= 0)
+				{
+					addDiePerson((*i).x, (*i).y);
+					ldps.erase(i);
+				}
+				break;
+			}
+		}
+
+		for (auto i = fjlist.begin(); i != fjlist.end() && flag == false; i++)
+		{
+			if ((tmpx > (*i).x - range_x && tmpx < (*i).x + range_x) && (tmpy > (*i).y - range_y && tmpy < (*i).y + range_y))
+			{
+		
+				(*i).life -= feijidanshanghai;
+				if ((*i).life <= 0)
+				{
+					fjlist.erase(i);
+				}
+				break;
+			}
+		}
+
+		for (auto i = dslist.begin(); i != dslist.end() && flag == false; i++)
+		{
+			if ((tmpx > (*i).x - range_x && tmpx < (*i).x + range_x) && (tmpy > (*i).y - range_y && tmpy < (*i).y + range_y))
+			{
+	
+				(*i).life -= feijidanshanghai;
+				if ((*i).life <= 0)
+				{
+					addDiePerson((*i).x, (*i).y);
+					dslist.erase(i);
+				}
+				break;
+			}
+		}
+
+		for (auto i = rsldlist.begin(); i != rsldlist.end() && flag == false; i++)
+		{
+			if ((tmpx > (*i).x - range_x && tmpx < (*i).x + range_x) && (tmpy > (*i).y - range_y && tmpy < (*i).y + range_y))
+			{
+			
+				(*i).life -= feijidanshanghai;
+				if ((*i).life <= 0)
+				{
+					addDiePerson((*i).x, (*i).y);
+					rsldlist.erase(i);
+				}
+				break;
+			}
+		}
 	}
 	// check xiaobingzidan
 	for (auto i = qiangshoulist.begin(); i != qiangshoulist.end(); i++)
@@ -2194,6 +2496,7 @@ void check()
 		{
 			if ((*j).x > zj.x - range_x && (*j).x < zj.x + range_x && (*j).y > zj.y - range_y && (*j).y < zj.y + range_y)
 			{
+				feijidanboomlist.push_back(feijidanboom((*j).x, (*j).y));
 				(*i).fjdlist.erase(j);
 				zj.life -= feijidanshanghai;
 			}
@@ -2427,6 +2730,10 @@ void IsPressKey()
 				myfj.y = groundy;
 				zj.y = groundy;
 			}
+			if (GetAsyncKeyState(' '))
+			{
+				myfj.fjdlist.push_back(feijidan(myfj.x, myfj.y));
+			}
 		}
 	}
 	MOUSEMSG m;		   // 定义鼠标消息
@@ -2476,6 +2783,22 @@ void IsPressKey()
 			}
 		}
 	}
+}
+void refreshAllNum()
+{
+	bossstandlist.begin()->time = 0;
+	roundtruekillnum = 0;
+	isBossShowed = false;
+	isRenzhiShowed = false;
+	bossstandlist.clear();
+	bossstandlist.push_back(bossstand());
+	bossangerlist.clear();
+	bossdielist.clear();
+	bosslist.clear();
+	finshedtime = 0;
+	changeFlag = false;
+	oldmanfreelist.clear();
+	oldmanbanglist.push_back(oldmanbang());
 }
 void xiaobingCheck()
 {
@@ -2543,84 +2866,157 @@ int main()
 	beforeshow();
 	mciSendString(_T("open Market.mp3 alias bkmusic"), NULL, 0, NULL);
 	mciSendString(_T("play bkmusic repeat"), NULL, 0, NULL);
-	// roundtruekillnum = 0;
-	////for (int i = 0; i < 1; i++)
-	//{
-	///	bossstandlist.push_back(bossstand());
-	//}
-	// while (roundnum < roundNum) {
-	// isBossShowed = false;
-	// isRenzhiShowed = false;
-	// changeFlag = false;
-	while (zj.life > 0 && finshedtime < 20) // 重复运行
+	while (1) 
 	{
-		if (changeFlag == true)
+		while (page == 0)
 		{
-			finshedtime++;
-		}
-		IsPressKey();
-		check();
-		if (isBossShowed == true)
-			bosscheck();
-		else
-		{
-			if (stoptime > 0)
+			putimage(0, 0, &IM_MENU);
+			putimagePng(0.4 * WIDTH, 0.5 * HEIGHT, &PUTONGMS);
+			putimagePng(0.6 * WIDTH, 0.5 * HEIGHT, &WUJINGMS);
+			if (mode == 0)
 			{
-				stoptime--;
+				putimagePng(0.4 * WIDTH + 30, 0.5 * HEIGHT - 50, &SELECT);
 			}
 			else
 			{
-				stoptime = stopTime;
-				xiaobingCheck();
+				putimagePng(0.6 * WIDTH + 30, 0.5 * HEIGHT - 50, &SELECT);
 			}
-		}
-		checkLetterE();
-		show(); // 绘制
-		zj.shot = 0;
-		int tmppos = zj.pos;
-		if (zj.y >= groundy && is_feiji == false)
-		{
-			zj.changexy(zj.x, groundy);
-			// pos: 0 is left, 1 is right, 2 is left jump,  3 is right jump, 4 is left down, 5 is right down, 6 is left stand, 7 is right stand
-			if ((tmppos == 0 || tmppos == 2 || tmppos == 4 || tmppos == 6))
+			FlushBatchDraw(); // 批量绘制
+			if (_kbhit()) //	If a key is pressed
 			{
-				zj.pos = 6;
+				char key;
+				key = _getch(); //	Obtain key info
+				if (GetAsyncKeyState(' '))
+				{
+					mode = 1 - mode;
+				}
+				if (GetAsyncKeyState(VK_RETURN))
+				{
+					if(mode == 0)
+					page = 1;
+					else
+					{
+						page = 2;
+					}
+				}
+			}
+			Sleep(100);		  // 暂停
+		}
+		while (page == 1 && mode == 0)
+		{
+			putimage(0, 0, &IM_MENU);
+			putimagePng(0.4 * WIDTH, 0.5 * HEIGHT, &PUTONGMS);
+			putimagePng(0.6 * WIDTH, 0.5 * HEIGHT, &WUJINGMS);
+			putimagePng(0.4 * WIDTH + 30, 0.5 * HEIGHT - 50, &SELECT);
+			putimagePng(0.3 * WIDTH, 0.7 * HEIGHT, &IM_ROUND1);
+			putimagePng(0.5 * WIDTH, 0.7 * HEIGHT, &IM_ROUND2);
+			putimagePng(0.7 * WIDTH, 0.7 * HEIGHT, &IM_ROUND3);
+			if (roundnum == 0)
+			{
+				putimagePng(0.3 * WIDTH + 30, 0.7 * HEIGHT - 50, &SELECT);
+			}
+			else if (roundnum == 1)
+			{
+				putimagePng(0.5 * WIDTH + 30, 0.7 * HEIGHT - 50, &SELECT);
 			}
 			else
 			{
-				zj.pos = 7;
+				putimagePng(0.7 * WIDTH + 30, 0.7 * HEIGHT - 50, &SELECT);
 			}
-		}
-	}
-
-	//	if (zj.life > 0) {
-	//		zj.life = zj.life + 0.5 * MaxLife;
-	//	if (zj.life > MaxLife)
-	//		{
-	//		zj.life = MaxLife;
-	//	}
-	//	}
-	// else
-	//	{
-	//	break;
-	// }
-	//}
-	// if (zj.life > 0 && roundnum >= roundNum)
-	while (1)
-	{
-		if (zj.life > 0)
-		{
-			putimagePng(WIDTH * 0.4, HEIGHT * 0.4, &WIN);
 			FlushBatchDraw(); // 批量绘制
+			if (_kbhit()) //	If a key is pressed
+			{
+				char key;
+				key = _getch(); //	Obtain key info
+				if (GetAsyncKeyState(' '))
+				{
+					roundnum = (roundnum + 1) % 3;
+				}
+				if (GetAsyncKeyState(VK_RETURN))
+				{
+					page = 2;
+					refreshAllNum();
+				}
+				if (GetAsyncKeyState(VK_ESCAPE))
+				{
+					page = 0;
+				}
+			}
 			Sleep(100);		  // 暂停
 		}
-		else
-		{
-			putimage(WIDTH * 0.4, HEIGHT * 0.4, &FAIL);
-			FlushBatchDraw(); // 批量绘制
-			Sleep(100);		  // 暂停
+		while (page == 2) {
+			while (zj.life > 0 && finshedtime < 20) // 重复运行
+			{
+				if (changeFlag == true)
+				{
+					finshedtime++;
+				}
+				IsPressKey();
+				check();
+				if (isBossShowed == true)
+					bosscheck();
+				else
+				{
+					if (stoptime > 0)
+					{
+						stoptime--;
+					}
+					else
+					{
+						stoptime = stopTime;
+						xiaobingCheck();
+					}
+				}
+				checkLetterE();
+				show(); // 绘制
+				zj.shot = 0;
+				int tmppos = zj.pos;
+				if (zj.y >= groundy && is_feiji == false)
+				{
+					zj.changexy(zj.x, groundy);
+					// pos: 0 is left, 1 is right, 2 is left jump,  3 is right jump, 4 is left down, 5 is right down, 6 is left stand, 7 is right stand
+					if ((tmppos == 0 || tmppos == 2 || tmppos == 4 || tmppos == 6))
+					{
+						zj.pos = 6;
+					}
+					else
+					{
+						zj.pos = 7;
+					}
+				}
+			}
+			while (page == 2)
+			{
+				if (zj.life > 0)
+				{
+					putimagePng(WIDTH * 0.4, HEIGHT * 0.4, &WIN);
+					FlushBatchDraw(); // 批量绘制
+					Sleep(100);		  // 暂停
+				}
+				else
+				{
+					putimage(WIDTH * 0.4, HEIGHT * 0.4, &FAIL);
+					FlushBatchDraw(); // 批量绘制
+					Sleep(100);		  // 暂停
+				}
+				if (_kbhit()) //	If a key is pressed
+				{
+					char key;
+					key = _getch(); //	Obtain key info
+					if (GetAsyncKeyState(VK_RETURN))
+					{
+						if(mode == 0)
+						page = 1;
+						else
+						{
+							page = 0;
+						}
+						break;
+					}
+				}
+			}
+			_getch();
 		}
 	}
-	_getch();
 	return 0;
 }
