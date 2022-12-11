@@ -9,11 +9,17 @@
 // 显示鼠标和子弹跟随鼠标发射 ok
 // 士兵死了要有动画 okk
 // 飞机按空格释放炸弹 okk
-// //添加爆炸效果okk
+// 添加爆炸效果okk
 // 添加进入游戏和退出游戏 okk
-// 添加捡子弹和子弹容量
-// 打完一个可以往右移动
-// 添加两张地图
+// 添加两张地图 okk
+// 打完一个可以往右移动 okk
+// 添加飞机也可以向右 okk
+// 添加第一关没有飞机，第二关只有飞机，第三关都有 okk
+// 看情况修改子弹到左边卡住的bug  okk
+// 调整子弹位置，子弹不射背后 okk
+// 背景地图换一下 okk
+// 无尽模式 okk
+// 少个血条 okk
 
 #include <graphics.h>
 #include <iostream>
@@ -37,11 +43,12 @@ int HEIGHT = 1080;		 // 画面高度
 // const int MAXLIFE = 100;
 const int bk1_Width = 8800;
 const int bk1_Height = 1080;
-const int bk2_Width = 543;
-const int bk2_Height = 193;
-const int bk3_Width = 1134;
-const int bk3_Height = 193;
-
+const int bk2_Width = 1910;
+const int bk2_Height = 224;
+const int bk3_Width = 1298;
+const int bk3_Height = 222;
+const int bkwj_width = 624;
+const int bkwj_height = 219;
 const int TIME = 100;
 const int ldbNum = 5;
 const int zjbdyqiang = 3;
@@ -107,8 +114,8 @@ const int oldmanbangNum = 3;
 const int oldmanfreeNum = 4;
 const int shibingdieNum = 5;
 const int shibingdie2Num = 8;
-const int roundkillnum = 10;
-//const int roundkillnum = 4;
+// const int roundkillnum = 10;
+const int roundkillnum = 15;
 const int feijidanboomnum = 8;
 const int zidanweizhi = 10;
 int GameTime = 0;
@@ -118,6 +125,7 @@ IMAGE im_fi;
 IMAGE im_bk1;
 IMAGE im_bk2;
 IMAGE im_bk3;
+IMAGE im_bkwj;
 IMAGE im_zj_body_qiang[zjbdyqiang];
 IMAGE im_zj_body_daqiang[zjbdydaqiang];
 IMAGE im_zj_body_pao[zjbdypao];
@@ -176,8 +184,14 @@ bool isRenzhiShowed = false;
 const int stopTime = 10;
 int stoptime = stopTime;
 bool changeFlag = false;
-bool canIhaveFeiji = true;
+bool canIhaveFeiji = false;
 TCHAR s[20];
+
+bool canIGoRight = false;
+int truepos = 0;
+int bkgroundTruePos = 0;
+bool checkflag = false;
+bool Bosscxg = false;
 void calScreenSize()
 {
 	int no_menu_bar_width = GetSystemMetrics(SM_CXFULLSCREEN);
@@ -380,6 +394,15 @@ public:
 	void changeWq(int wqq)
 	{
 		wq = wqq;
+	}
+	void drow_blood()
+	{
+		setlinecolor(RGB(255, 255, 255));
+		fillrectangle(9, 9, 11 + 200, 31);
+		setfillcolor(RGB(18, 150, 70));
+		fillrectangle(10, 10, 10 + ((200 * life) / MaxLife), 30);
+		setfillcolor(RGB(255, 255, 255));
+		setlinecolor(RGB(255, 255, 255));
 	}
 	void draw()
 	{
@@ -825,12 +848,14 @@ public:
 	}
 };
 list<liudanpaoshou> ldps;
-class feijidanboom {
+class feijidanboom
+{
 public:
 	int x;
 	int y;
 	int time;
-	feijidanboom() {
+	feijidanboom()
+	{
 		x = 0;
 		y = 0;
 		time = 0;
@@ -880,7 +905,7 @@ public:
 			if (y >= groundy)
 			{
 				is_bombed = true;
-				feijidanboomlist.push_back(feijidanboom(x,y));
+				feijidanboomlist.push_back(feijidanboom(x, y));
 			}
 		}
 	}
@@ -1509,7 +1534,8 @@ public:
 	}
 };
 list<die2man> die2manlist;
-class LetterE {
+class LetterE
+{
 public:
 	int x;
 	int y;
@@ -1543,18 +1569,20 @@ public:
 	}
 	bool show()
 	{
-		putimagePng(x, y, &im_LetterE);
+		putimagePng(x, y-80, &im_LetterE);
 		return true;
 	}
 };
 LetterE E;
-class zidanboom {
+class zidanboom
+{
 public:
 	int x;
 	int y;
 	int pos;
 	int time;
-	zidanboom(){
+	zidanboom()
+	{
 		x = 0;
 		y = 0;
 		time = 5;
@@ -1573,11 +1601,11 @@ public:
 		{
 			if (pos == 1)
 			{
-				putimagePng(x+10, y+20, &im_zidanboom);
+				putimagePng(x + 10, y + 20, &im_zidanboom);
 			}
-			else if(pos == 0)
+			else if (pos == 0)
 			{
-				putToggleImagePng(x-10, y+20, &im_zidanboom);
+				putToggleImagePng(x - 10, y + 20, &im_zidanboom);
 			}
 			time--;
 			return true;
@@ -1594,8 +1622,9 @@ void startup() //  初始化函数
 	srand(time(0));												// 初始化随机种子
 	loadimage(&im_fi, _T("firstImg.jpg"), WIDTH, HEIGHT, true); // 导入背景图片
 	loadimage(&im_bk1, _T("background1.png"), bk1_Width * HEIGHT / bk1_Height, HEIGHT, true);
-	loadimage(&im_bk2, _T("background2.png"),  bk2_Width * HEIGHT / bk2_Height, HEIGHT, true);
+	loadimage(&im_bk2, _T("background2.png"), bk2_Width * HEIGHT / bk2_Height, HEIGHT, true);
 	loadimage(&im_bk3, _T("background3.png"), bk3_Width * HEIGHT / bk3_Height, HEIGHT, true);
+	loadimage(&im_bkwj, _T("bk4.png"), bkwj_width * HEIGHT / bkwj_height, HEIGHT, true);
 	loadimage(&zidan, _T("zidan.png"));
 	loadimage(&im_feijidan, _T("./feiji/zhadan.png"));
 	loadimage(&Dazidan, _T("dazidan.png"));
@@ -1785,7 +1814,7 @@ void beforeshow() // 绘制函数
 			putimagePng(0.6 * WIDTH + 30, 0.5 * HEIGHT - 50, &SELECT);
 		}
 		FlushBatchDraw(); // 批量绘制
-		if (_kbhit()) //	If a key is pressed
+		if (_kbhit())	  //	If a key is pressed
 		{
 			char key;
 			key = _getch(); //	Obtain key info
@@ -1802,9 +1831,8 @@ void beforeshow() // 绘制函数
 					page = 2;
 				}
 			}
-
 		}
-		Sleep(100);		  // 暂停
+		Sleep(100); // 暂停
 	}
 	while (page == 1 && mode == 0)
 	{
@@ -1819,7 +1847,7 @@ void beforeshow() // 绘制函数
 		{
 			putimagePng(0.3 * WIDTH + 30, 0.7 * HEIGHT - 50, &SELECT);
 		}
-		else if(roundnum == 1)
+		else if (roundnum == 1)
 		{
 			putimagePng(0.5 * WIDTH + 30, 0.7 * HEIGHT - 50, &SELECT);
 		}
@@ -1828,13 +1856,13 @@ void beforeshow() // 绘制函数
 			putimagePng(0.7 * WIDTH + 30, 0.7 * HEIGHT - 50, &SELECT);
 		}
 		FlushBatchDraw(); // 批量绘制
-		if (_kbhit()) //	If a key is pressed
+		if (_kbhit())	  //	If a key is pressed
 		{
 			char key;
 			key = _getch(); //	Obtain key info
 			if (GetAsyncKeyState(' '))
 			{
-				roundnum = ( roundnum + 1 ) % 3;
+				roundnum = (roundnum + 1) % 3;
 			}
 			if (GetAsyncKeyState(VK_RETURN))
 			{
@@ -1845,7 +1873,7 @@ void beforeshow() // 绘制函数
 				page = 0;
 			}
 		}
-		Sleep(100);		  // 暂停
+		Sleep(100); // 暂停
 	}
 }
 bool checkIsDangZhu(int x, int y, int pos)
@@ -1853,12 +1881,12 @@ bool checkIsDangZhu(int x, int y, int pos)
 	bool flag = false;
 	for (auto i = tongList.begin(); i != tongList.end(); i++)
 	{
-		//if (flag == false && (*i).x == x && (y > (*i).y - 60 - range_y && y < (*i).y + 10 + range_y) && pos == 1)
+		// if (flag == false && (*i).x == x && (y > (*i).y - 60 - range_y && y < (*i).y + 10 + range_y) && pos == 1)
 		if (flag == false && (*i).x + range_x >= x && (*i).x - range_x <= x && (y > (*i).y - 40 - range_y && y < (*i).y + 20 + range_y) && pos == 1)
 		{
 			flag = true;
 		}
-		//if (flag == false && (*i).x + dangrange_x == x && (y > (*i).y - 60 - range_y && y < (*i).y + 10 + range_y) && pos == 0)
+		// if (flag == false && (*i).x + dangrange_x == x && (y > (*i).y - 60 - range_y && y < (*i).y + 10 + range_y) && pos == 0)
 		if (flag == false && (*i).x + dangrange_x + range_x >= x && (*i).x + dangrange_x - range_x <= x && (y > (*i).y - 40 - range_y && y < (*i).y + 20 + range_y) && pos == 0)
 		{
 			flag = true;
@@ -1866,12 +1894,12 @@ bool checkIsDangZhu(int x, int y, int pos)
 	}
 	for (auto i = shadailist.begin(); i != shadailist.end(); i++)
 	{
-		//if (flag == false && (*i).x == x && (y > (*i).y - 60 - range_y && y < (*i).y + 10 + range_y) && pos == 1)
+		// if (flag == false && (*i).x == x && (y > (*i).y - 60 - range_y && y < (*i).y + 10 + range_y) && pos == 1)
 		if (flag == false && (*i).x + range_x >= x && (*i).x - range_x <= x && (y > (*i).y - 20 - range_y && y < (*i).y + 20 + range_y) && pos == 1)
 		{
 			flag = true;
 		}
-		//if (flag == false && (*i).x + dangrange_x == x && (y > (*i).y - 60 - range_y && y < (*i).y + 10 + range_y) && pos == 0)
+		// if (flag == false && (*i).x + dangrange_x == x && (y > (*i).y - 60 - range_y && y < (*i).y + 10 + range_y) && pos == 0)
 		if (flag == false && (*i).x + dangrange_x + range_x >= x && (*i).x + dangrange_x - range_x <= x && (y > (*i).y - 20 - range_y && y < (*i).y + 20 + range_y) && pos == 0)
 		{
 			flag = true;
@@ -1882,12 +1910,18 @@ bool checkIsDangZhu(int x, int y, int pos)
 void show() // 绘制函数
 {
 	gametime++;
-	 if(roundnum == 0)
-	putimage(0, 0, &im_bk1); // 显示背景
-	 if (roundnum == 1)
-	 putimage(0, 0, &im_bk2);
-	 if (roundnum == 2)
-	 putimage(0, 0, &im_bk3);
+	if (mode == 0) {
+		if (roundnum == 0 || (roundnum == 1 && finshedtime < 20))
+			putimage(bkgroundTruePos, 0, &im_bk1); // 显示背景
+		if ((roundnum == 1 && finshedtime == 0) || (roundnum == 2 && finshedtime < 20))
+			putimage(bkgroundTruePos, 0, &im_bk2);
+		if ((roundnum == 2 && finshedtime == 0) || (roundnum == 3 && finshedtime < 20))
+			putimage(bkgroundTruePos, 0, &im_bk3);
+	}
+	else
+	{
+		putimage(bkgroundTruePos, 0, &im_bkwj);
+	}
 	for (auto i = zj.zidanlist.begin(); i != zj.zidanlist.end(); i++)
 	{
 		(*i).update();
@@ -1901,13 +1935,13 @@ void show() // 绘制函数
 	for (auto i = qiangshoulist.begin(); i != qiangshoulist.end(); i++)
 	{
 		if (checkIsDangZhu((*i).x, (*i).y, (*i).pos) == false)
-		(*i).update();
+			(*i).update();
 		(*i).show();
 	}
 	for (auto i = ldps.begin(); i != ldps.end(); i++)
 	{
-		if(checkIsDangZhu((*i).x,(*i).y,(*i).pos) == false)
-		(*i).update();
+		if (checkIsDangZhu((*i).x, (*i).y, (*i).pos) == false)
+			(*i).update();
 		(*i).show();
 	}
 	for (auto i = fjlist.begin(); i != fjlist.end(); i++)
@@ -1918,14 +1952,14 @@ void show() // 绘制函数
 	for (auto i = dslist.begin(); i != dslist.end(); i++)
 	{
 		if (checkIsDangZhu((*i).x, (*i).y, (*i).pos) == false)
-		(*i).update();
+			(*i).update();
 		(*i).show();
 	}
 	myfj.normalupdate();
 	for (auto i = rsldlist.begin(); i != rsldlist.end(); i++)
 	{
 		if (checkIsDangZhu((*i).x, (*i).y, (*i).pos) == false)
-		(*i).update();
+			(*i).update();
 		(*i).show();
 	}
 	if (is_feiji == false && (zj.vy < 0 || zj.y < groundy))
@@ -1934,8 +1968,6 @@ void show() // 绘制函数
 		zj.vy += my_g;
 	}
 
-
-	
 	for (auto i = die1manlist.begin(); i != die1manlist.end(); i++)
 	{
 		(*i).show();
@@ -1949,8 +1981,13 @@ void show() // 绘制函数
 	{
 		zj.draw();
 	}
+	else
+	{
+		zj.drow_blood();
+	}
 	// putimagePng(100, 100, &liuDanBing[gametime % ldbNum]);
-	if (canIhaveFeiji == true) {
+	if (canIhaveFeiji == true)
+	{
 		myfj.show();
 	}
 	for (auto i = tongList.begin(); i != tongList.end(); i++)
@@ -2009,6 +2046,12 @@ void show() // 绘制函数
 			feijidanboomlist.erase(i);
 		}
 	}
+	if (mode == 1)
+	{
+		outtextxy(0.85 * WIDTH, 50, _T("击敌数："));
+		swprintf_s(s, _T("%d"), int(roundtruekillnum-1));
+		outtextxy(0.9 * WIDTH, 50, s);
+	}
 	FlushBatchDraw(); // 批量绘制
 	Sleep(100);		  // 暂停
 }
@@ -2058,76 +2101,148 @@ void adddaoshou(int n)
 		dslist.push_back(daoshou());
 	}
 }
+void addTong(int n)
+{
+	for (int i = 0; i < n; i++)
+	{
+		tongList.push_back(tong());
+	}
+}
+void addShadai(int n)
+{
+	for (int i = 0; i < n; i++)
+	{
+		shadailist.push_back(shadai());
+	}
+}
 void round1()
 {
-	for (int t = 0; t < 1; t++)
-	{
-		qiangshoulist.push_back(qiangshou());
-	}
-	for (int t = 0; t < 0; t++)
-	{
-		rsldlist.push_back(rengshouliudanshou());
-	}
-	for (int t = 0; t < 1; t++)
-	{
-		ldps.push_back(liudanpaoshou());
-	}
+	if (roundnum == 0) {
+		for (int t = 0; t < 1; t++)
+		{
+			qiangshoulist.push_back(qiangshou());
+		}
+		for (int t = 0; t < 0; t++)
+		{
+			rsldlist.push_back(rengshouliudanshou());
+		}
+		for (int t = 0; t < 1; t++)
+		{
+			ldps.push_back(liudanpaoshou());
+		}
 
-	for (int i = 0; i < 0; i++)
-	{
-		fjlist.push_back(feiji());
+		for (int i = 0; i < 0; i++)
+		{
+			fjlist.push_back(feiji());
+		}
+		for (int i = 0; i < 1; i++)
+		{
+			dslist.push_back(daoshou());
+		}
 	}
-	for (int i = 0; i < 1; i++)
+	else if (roundnum == 1)
 	{
-		dslist.push_back(daoshou());
+		addfeiji(3);
+		addldps(2);
+		addqiangshou(3);
+		adddaoshou(2);
+	}
+	else
+	{
+		addfeiji(2);
+		addldps(2);
+		adddaoshou(2);
+		addrsld(3);
+		addqiangshou(2);
 	}
 }
 void round2()
 {
-	for (int t = 0; t < 1; t++)
-	{
-		qiangshoulist.push_back(qiangshou());
-	}
-	for (int t = 0; t < 2; t++)
-	{
-		rsldlist.push_back(rengshouliudanshou());
-	}
-	for (int t = 0; t < 0; t++)
-	{
-		ldps.push_back(liudanpaoshou());
-	}
+	if (roundnum == 0) {
+		for (int t = 0; t < 1; t++)
+		{
+			qiangshoulist.push_back(qiangshou());
+		}
+		for (int t = 0; t < 2; t++)
+		{
+			rsldlist.push_back(rengshouliudanshou());
+		}
+		for (int t = 0; t < 0; t++)
+		{
+			ldps.push_back(liudanpaoshou());
+		}
 
-	for (int i = 0; i < 1; i++)
-	{
-		fjlist.push_back(feiji());
+		for (int i = 0; i < 1; i++)
+		{
+			fjlist.push_back(feiji());
+		}
+		for (int i = 0; i < 0; i++)
+		{
+			dslist.push_back(daoshou());
+		}
+		addShadai(2);
+		addTong(3);
 	}
-	for (int i = 0; i < 0; i++)
+	else if (roundnum == 1)
 	{
-		dslist.push_back(daoshou());
+		addfeiji(4);
+		adddaoshou(2);
+		addldps(5);
+		addShadai(1);
+		addTong(3);
+	}
+	else
+	{
+		addfeiji(2);
+		adddaoshou(2);
+		addldps(2);
+		addqiangshou(2);
+		addrsld(2);
+		addShadai(2);
+		addTong(2);
 	}
 }
 void round3()
 {
-	for (int t = 0; t < 1; t++)
-	{
-		qiangshoulist.push_back(qiangshou());
-	}
-	for (int t = 0; t < 1; t++)
-	{
-		rsldlist.push_back(rengshouliudanshou());
-	}
-	for (int t = 0; t < 1; t++)
-	{
-		ldps.push_back(liudanpaoshou());
-	}
+	if (roundnum == 0) {
+		for (int t = 0; t < 1; t++)
+		{
+			qiangshoulist.push_back(qiangshou());
+		}
+		for (int t = 0; t < 1; t++)
+		{
+			rsldlist.push_back(rengshouliudanshou());
+		}
+		for (int t = 0; t < 1; t++)
+		{
+			ldps.push_back(liudanpaoshou());
+		}
 
-	for (int i = 0; i < 2; i++)
-	{
-		fjlist.push_back(feiji());
+		for (int i = 0; i < 2; i++)
+		{
+			fjlist.push_back(feiji());
+		}
+		for (int i = 0; i < 1; i++)
+		{
+			dslist.push_back(daoshou());
+		}
+		addShadai(1);
+		addTong(5);
 	}
-	for (int i = 0; i < 1; i++)
+	else if (roundnum == 1)
 	{
-		dslist.push_back(daoshou());
+		addfeiji(5);
+		addqiangshou(2);
+		addShadai(2);
+		addTong(2);
+	}
+	else
+	{
+		addfeiji(2);
+		addqiangshou(4);
+		adddaoshou(4);
+		addShadai(0);
+		addTong(5);
 	}
 }
 void addDiePerson(int x, int y)
@@ -2135,11 +2250,11 @@ void addDiePerson(int x, int y)
 	int tmp = rand() % 2;
 	if (tmp == 0)
 	{
-		die1manlist.push_back(die1man(x, y+40));
+		die1manlist.push_back(die1man(x, y + 40));
 	}
 	else
 	{
-		die2manlist.push_back(die2man(x, y+40));
+		die2manlist.push_back(die2man(x, y + 40));
 	}
 }
 bool checkZhangAiWu(int x, int y, int cost)
@@ -2159,7 +2274,6 @@ bool checkZhangAiWu(int x, int y, int cost)
 				tongList.erase(i);
 			}
 		}
-
 	}
 	for (auto i = shadailist.begin(); i != shadailist.end(); i++)
 	{
@@ -2232,7 +2346,7 @@ void check()
 					if ((*i).life <= 0)
 					{
 						fjlist.erase(i);
-						//addDiePerson((*i).x, (*i).y);
+						// addDiePerson((*i).x, (*i).y);
 					}
 					break;
 				}
@@ -2270,6 +2384,10 @@ void check()
 					}
 					break;
 				}
+			}
+			if (tmpx < 0)
+			{
+				zj.dazidanlist.erase(k);
 			}
 		}
 	}
@@ -2370,8 +2488,11 @@ void check()
 					break;
 				}
 			}
+			if (tmpx < 0)
+			{
+				zj.zidanlist.erase(k);
+			}
 		}
-
 	}
 	for (auto k = myfj.fjdlist.begin(); k != myfj.fjdlist.end(); k++)
 	{
@@ -2398,7 +2519,7 @@ void check()
 		{
 			if ((tmpx > (*i).x - range_x && tmpx < (*i).x + range_x) && (tmpy > (*i).y - range_y && tmpy < (*i).y + range_y))
 			{
-			
+
 				(*i).life -= feijidanshanghai;
 				if ((*i).life <= 0)
 				{
@@ -2413,7 +2534,7 @@ void check()
 		{
 			if ((tmpx > (*i).x - range_x && tmpx < (*i).x + range_x) && (tmpy > (*i).y - range_y && tmpy < (*i).y + range_y))
 			{
-		
+
 				(*i).life -= feijidanshanghai;
 				if ((*i).life <= 0)
 				{
@@ -2427,7 +2548,7 @@ void check()
 		{
 			if ((tmpx > (*i).x - range_x && tmpx < (*i).x + range_x) && (tmpy > (*i).y - range_y && tmpy < (*i).y + range_y))
 			{
-	
+
 				(*i).life -= feijidanshanghai;
 				if ((*i).life <= 0)
 				{
@@ -2442,7 +2563,7 @@ void check()
 		{
 			if ((tmpx > (*i).x - range_x && tmpx < (*i).x + range_x) && (tmpy > (*i).y - range_y && tmpy < (*i).y + range_y))
 			{
-			
+
 				(*i).life -= feijidanshanghai;
 				if ((*i).life <= 0)
 				{
@@ -2458,7 +2579,8 @@ void check()
 	{
 		for (auto j = (*i).drzdlist.begin(); j != (*i).drzdlist.end(); j++)
 		{
-			if (checkZhangAiWu((*j).x, (*j).y, direnzidanshanghai) == false) {
+			if (checkZhangAiWu((*j).x, (*j).y, direnzidanshanghai) == false)
+			{
 				if ((*j).x > zj.x - range_x && (*j).x < zj.x + range_x && (*j).y > zj.y - range_y && (*j).y < zj.y + range_y)
 				{
 					(*i).drzdlist.erase(j);
@@ -2476,12 +2598,13 @@ void check()
 	{
 		for (auto j = (*i).drzdlist.begin(); j != (*i).drzdlist.end(); j++)
 		{
-			if (checkZhangAiWu((*j).x, (*j).y, direnliudanshanghai) == false) {
-			if ((*j).x > zj.x - range_x && (*j).x < zj.x + range_x && (*j).y > zj.y - range_y && (*j).y < zj.y + range_y)
+			if (checkZhangAiWu((*j).x, (*j).y, direnliudanshanghai) == false)
 			{
-				(*i).drzdlist.erase(j);
-				zj.life -= direnliudanshanghai;
-			}
+				if ((*j).x > zj.x - range_x && (*j).x < zj.x + range_x && (*j).y > zj.y - range_y && (*j).y < zj.y + range_y)
+				{
+					(*i).drzdlist.erase(j);
+					zj.life -= direnliudanshanghai;
+				}
 			}
 			else
 			{
@@ -2522,7 +2645,8 @@ void check()
 	{
 		for (auto j = (*i).sldlist.begin(); j != (*i).sldlist.end(); j++)
 		{
-			if (checkZhangAiWu((*j).x, (*j).y, shouliudanshanghai) == false) {
+			if (checkZhangAiWu((*j).x, (*j).y, shouliudanshanghai) == false)
+			{
 				if ((*j).x > zj.x - range_x && (*j).x < zj.x + range_x && (*j).y > zj.y - range_y && (*j).y < zj.y + range_y)
 				{
 					(*i).sldlist.erase(j);
@@ -2555,26 +2679,248 @@ void bosscheck()
 	}
 	if (isAllDied() && bossangerlist.size() > 0 && bossangerlist.begin()->imgnum >= bossAngerNum * bosstimes)
 	{
-		list<bossAnger>::iterator bsag = bossangerlist.begin();
-		// bossstandlist.push_back(bossstand(bsag.x,bsag.y, bsag.time, bsag.life));
-		int xx = bsag->x;
-		int yy = bsag->y;
-		int tt = bsag->time;
-		int ll = bsag->life;
-		bosslist.push_back(boss(xx, yy, tt, ll));
-		if (bsag->time == 1)
+
+		if ((bossangerlist.begin()->time) == 1)
 		{
-			round1();
+			isBossShowed = true;
+			isRenzhiShowed = true;
+			list<bossAnger>::iterator bsag = bossangerlist.begin();
+			// bossstandlist.push_back(bossstand(bsag.x,bsag.y, bsag.time, bsag.life));
+			int xx = bsag->x;
+			int yy = bsag->y;
+			int tt = bsag->time;
+			int ll = bsag->life;
+			bosslist.push_back(boss(xx, yy, tt, ll));
+			if (bsag->time == 1)
+			{
+				round1();
+			}
+			else if (bsag->time == 2)
+			{
+				round2();
+			}
+			else if (bsag->time == 3)
+			{
+				round3();
+			}
+			bossangerlist.clear();
 		}
-		else if (bsag->time == 2)
+		else if ((bossangerlist.begin()->time) == 2)
 		{
-			round2();
+			if (roundnum == 0)
+			{
+				if (truepos < (bk1_Width * HEIGHT / bk1_Height) * 0.4)
+				{
+					canIGoRight = true;
+					isBossShowed = false;
+					isRenzhiShowed = false;
+				}
+				else
+				{
+					canIGoRight = false;
+					isBossShowed = true;
+					isRenzhiShowed = true;
+					list<bossAnger>::iterator bsag = bossangerlist.begin();
+					// bossstandlist.push_back(bossstand(bsag.x,bsag.y, bsag.time, bsag.life));
+					int xx = bsag->x;
+					int yy = bsag->y;
+					int tt = bsag->time;
+					int ll = bsag->life;
+					bosslist.push_back(boss(xx, yy, tt, ll));
+					if (bsag->time == 1)
+					{
+						round1();
+					}
+					else if (bsag->time == 2)
+					{
+						round2();
+					}
+					else if (bsag->time == 3)
+					{
+						round3();
+					}
+					bossangerlist.clear();
+				}
+			}
+			else if (roundnum == 1)
+			{
+				if (truepos < (bk2_Width * HEIGHT / bk2_Height) * 0.4)
+				{
+					canIGoRight = true;
+					isBossShowed = false;
+					isRenzhiShowed = false;
+				}
+				else
+				{
+					canIGoRight = false;
+					isBossShowed = true;
+					isRenzhiShowed = true;
+					list<bossAnger>::iterator bsag = bossangerlist.begin();
+					// bossstandlist.push_back(bossstand(bsag.x,bsag.y, bsag.time, bsag.life));
+					int xx = bsag->x;
+					int yy = bsag->y;
+					int tt = bsag->time;
+					int ll = bsag->life;
+					bosslist.push_back(boss(xx, yy, tt, ll));
+					if (bsag->time == 1)
+					{
+						round1();
+					}
+					else if (bsag->time == 2)
+					{
+						round2();
+					}
+					else if (bsag->time == 3)
+					{
+						round3();
+					}
+					bossangerlist.clear();
+				}
+			}
+			else
+			{
+				if (truepos < (bk3_Width * HEIGHT / bk3_Height) * 0.4)
+				{
+					canIGoRight = true;
+					isBossShowed = false;
+					isRenzhiShowed = false;
+				}
+				else
+				{
+					canIGoRight = false;
+					isBossShowed = true;
+					isRenzhiShowed = true;
+					list<bossAnger>::iterator bsag = bossangerlist.begin();
+					// bossstandlist.push_back(bossstand(bsag.x,bsag.y, bsag.time, bsag.life));
+					int xx = bsag->x;
+					int yy = bsag->y;
+					int tt = bsag->time;
+					int ll = bsag->life;
+					bosslist.push_back(boss(xx, yy, tt, ll));
+					if (bsag->time == 1)
+					{
+						round1();
+					}
+					else if (bsag->time == 2)
+					{
+						round2();
+					}
+					else if (bsag->time == 3)
+					{
+						round3();
+					}
+					bossangerlist.clear();
+				}
+			}
 		}
-		else if (bsag->time == 3)
+		else if ((bossangerlist.begin()->time) == 3)
 		{
-			round3();
+			if (roundnum == 0)
+			{
+				if (truepos < (bk1_Width * HEIGHT / bk1_Height) * 0.6)
+				{
+					isBossShowed = false;
+					isRenzhiShowed = false;
+					canIGoRight = true;
+				}
+				else
+				{
+					canIGoRight = false;
+					isBossShowed = true;
+					isRenzhiShowed = true;
+					list<bossAnger>::iterator bsag = bossangerlist.begin();
+					// bossstandlist.push_back(bossstand(bsag.x,bsag.y, bsag.time, bsag.life));
+					int xx = bsag->x;
+					int yy = bsag->y;
+					int tt = bsag->time;
+					int ll = bsag->life;
+					bosslist.push_back(boss(xx, yy, tt, ll));
+					if (bsag->time == 1)
+					{
+						round1();
+					}
+					else if (bsag->time == 2)
+					{
+						round2();
+					}
+					else if (bsag->time == 3)
+					{
+						round3();
+					}
+					bossangerlist.clear();
+				}
+			}
+			else if (roundnum == 1)
+			{
+				if (truepos < (bk2_Width * HEIGHT / bk2_Height) * 0.6)
+				{
+					isBossShowed = false;
+					isRenzhiShowed = false;
+					canIGoRight = true;
+				}
+				else
+				{
+					canIGoRight = false;
+					isBossShowed = true;
+					isRenzhiShowed = true;
+					list<bossAnger>::iterator bsag = bossangerlist.begin();
+					// bossstandlist.push_back(bossstand(bsag.x,bsag.y, bsag.time, bsag.life));
+					int xx = bsag->x;
+					int yy = bsag->y;
+					int tt = bsag->time;
+					int ll = bsag->life;
+					bosslist.push_back(boss(xx, yy, tt, ll));
+					if (bsag->time == 1)
+					{
+						round1();
+					}
+					else if (bsag->time == 2)
+					{
+						round2();
+					}
+					else if (bsag->time == 3)
+					{
+						round3();
+					}
+					bossangerlist.clear();
+				}
+			}
+			else
+			{
+				if (truepos < (bk3_Width * HEIGHT / bk3_Height) * 0.6)
+				{
+					isBossShowed = false;
+					isRenzhiShowed = false;
+					canIGoRight = true;
+				}
+				else
+				{
+					canIGoRight = false;
+					isBossShowed = true;
+					isRenzhiShowed = true;
+					list<bossAnger>::iterator bsag = bossangerlist.begin();
+					// bossstandlist.push_back(bossstand(bsag.x,bsag.y, bsag.time, bsag.life));
+					int xx = bsag->x;
+					int yy = bsag->y;
+					int tt = bsag->time;
+					int ll = bsag->life;
+					bosslist.push_back(boss(xx, yy, tt, ll));
+					if (bsag->time == 1)
+					{
+						round1();
+					}
+					else if (bsag->time == 2)
+					{
+						round2();
+					}
+					else if (bsag->time == 3)
+					{
+						round3();
+					}
+					bossangerlist.clear();
+				}
+			}
 		}
-		bossangerlist.clear();
 	}
 	if (bosslist.size() > 0 && bosslist.begin()->imgnum >= bossNum * bosstimes)
 	{
@@ -2594,7 +2940,7 @@ void checkLetterE()
 		E.isshow();
 		E.change(myfj.x);
 	}
-	else if(zj.x > oldmanbanglist.begin()->x - range_x && zj.x < oldmanbanglist.begin()->x + range_x && isAllDied() && isbossdied == true)
+	else if (zj.x > oldmanbanglist.begin()->x - range_x && zj.x < oldmanbanglist.begin()->x + range_x && isAllDied() && isbossdied == true)
 	{
 		E.isshow();
 		E.change(oldmanbanglist.begin()->x);
@@ -2603,11 +2949,81 @@ void checkLetterE()
 	{
 		E.isnotshow();
 	}
-	
+}
+bool canIgoRight()
+{
+	if (canIGoRight && isAllDied() && bossangerlist.size() > 0 && (bossangerlist.begin()->time) == 2 && zj.x > 0.6 * WIDTH)
+	{
+		if (roundnum == 0 && truepos < bk1_Width * HEIGHT / bk1_Height * 0.4)
+		{
+			return true;
+		}
+		else if (roundnum == 1 && truepos < bk2_Width * HEIGHT / bk2_Height * 0.4)
+		{
+			return true;
+		}
+		else if (roundnum == 2 && truepos < bk3_Width * HEIGHT / bk3_Height * 0.4)
+		{
+			return true;
+		}
+		else
+		{
+			canIGoRight = false;
+			return false;
+		}
+	}
+	else if (canIGoRight && isAllDied() && bossangerlist.size() > 0 && (bossangerlist.begin()->time) == 3 && zj.x > 0.6 * WIDTH)
+	{
+		if (roundnum == 0 && truepos < bk1_Width * HEIGHT / bk1_Height * 0.6)
+		{
+			return true;
+		}
+		else if (roundnum == 1 && truepos < bk2_Width * HEIGHT / bk2_Height * 0.6)
+		{
+			return true;
+		}
+		else if (roundnum == 2 && truepos < bk3_Width * HEIGHT / bk3_Height * 0.6)
+		{
+			return true;
+		}
+		else
+		{
+			canIGoRight = false;
+			return false;
+		}
+	}
+	else
+	{
+		return false;
+	}
+}
+void goRight()
+{
+	bkgroundTruePos -= v;
+	truepos += v;
+	for (auto i = tongList.begin(); i != tongList.end(); i++)
+	{
+		(*i).x -= v;
+		if ((*i).x < 0)
+		{
+			tongList.erase(i);
+		}
+	}
+	for (auto i = shadailist.begin(); i != shadailist.end(); i++)
+	{
+		(*i).x -= v;
+		if ((*i).x < 0)
+		{
+			shadailist.erase(i);
+		}
+	}
+	if (is_feiji == false && canIhaveFeiji == true)
+	{
+		myfj.x -= v;
+	}
 }
 void IsPressKey()
 {
-
 	if (_kbhit()) //	If a key is pressed
 	{
 		char key;
@@ -2646,20 +3062,34 @@ void IsPressKey()
 				{
 					zj.pos = 5;
 				}
-		
 			}
 
-			if (GetAsyncKeyState('A') && zj.x > 0)
+			if (GetAsyncKeyState('A') && zj.x > v)
 			{
-				if( checkIsDangZhu(zj.x,zj.y,0) == false)
-				zj.changexy(zj.x - v, zj.y);
+				if (checkIsDangZhu(zj.x, zj.y, 0) == false)
+				{
+					zj.changexy(zj.x - v, zj.y);
+					truepos -= v;
+				}
 				// pos: 0 is left, 1 is right, 2 is left jump,  3 is right jump, 4 is left down, 5 is right down, 6 is left stand, 7 is right stand
 				zj.pos = 0;
 			}
 			if (GetAsyncKeyState('D') && zj.x < WIDTH - range_x)
 			{
+				// goRight();
 				if (checkIsDangZhu(zj.x, zj.y, 1) == false)
-				zj.changexy(zj.x + v, zj.y);
+				{
+
+					if (canIgoRight() == false)
+					{
+						zj.changexy(zj.x + v, zj.y);
+						truepos += v;
+					}
+					else
+					{
+						goRight();
+					}
+				}
 				// pos: 0 is left, 1 is right, 2 is left jump,  3 is right jump, 4 is left down, 5 is right down, 6 is left stand, 7 is right stand
 				zj.pos = 1;
 			}
@@ -2683,7 +3113,7 @@ void IsPressKey()
 					changeFlag = true;
 				}
 			}
-			if ( canIhaveFeiji == true && GetAsyncKeyState('E') && zj.x > myfj.x - range_x && zj.x < myfj.x + range_x)
+			if (canIhaveFeiji == true && GetAsyncKeyState('E') && zj.x > myfj.x - range_x && zj.x < myfj.x + range_x)
 			{
 				is_feiji = true;
 			}
@@ -2709,8 +3139,15 @@ void IsPressKey()
 			}
 			if (GetAsyncKeyState('D'))
 			{
-				zj.x = zj.x + myfeiji_vx;
-				myfj.x += myfeiji_vx;
+				if (canIgoRight() == false)
+				{
+					zj.x = zj.x + myfeiji_vx;
+					myfj.x += myfeiji_vx;
+				}
+				else
+				{
+					goRight();
+				}
 				myfj.pos = 0;
 				zj.pos = 1;
 			}
@@ -2765,10 +3202,26 @@ void IsPressKey()
 			if (x == 0)
 			{
 				zj.zidanlist.push_back(Zidan(zj.x - 10, zj.y + 20, 0, -zidan_vx, zidan_vy));
+				if (-zidan_vx < 0)
+				{
+					zj.pos += 1;
+					if (is_feiji)
+					{
+						myfj.pos += 1;
+					}
+				}
 			}
 			else
 			{
 				zj.zidanlist.push_back(Zidan(zj.x + 10, zj.y + 20, 1, zidan_vx, zidan_vy));
+				if (zidan_vx < 0)
+				{
+					zj.pos -= 1;
+					if (is_feiji)
+					{
+						myfj.pos -= 1;
+					}
+				}
 			}
 		}
 		else
@@ -2776,10 +3229,26 @@ void IsPressKey()
 			if (x == 0)
 			{
 				zj.dazidanlist.push_back(DaZidan(zj.x - 10, zj.y + 20, 0, -zidan_vx, zidan_vy));
+				if (-zidan_vx < 0)
+				{
+					zj.pos += 1;
+					if (is_feiji)
+					{
+						myfj.pos += 1;
+					}
+				}
 			}
 			else
 			{
 				zj.dazidanlist.push_back(DaZidan(zj.x + 10, zj.y + 20, 1, zidan_vx, zidan_vy));
+				if (zidan_vx < 0)
+				{
+					zj.pos -= 1;
+					if (is_feiji)
+					{
+						myfj.pos -= 1;
+					}
+				}
 			}
 		}
 	}
@@ -2797,17 +3266,36 @@ void refreshAllNum()
 	bosslist.clear();
 	finshedtime = 0;
 	changeFlag = false;
+	Bosscxg = false;
 	oldmanfreelist.clear();
 	oldmanbanglist.push_back(oldmanbang());
+	canIGoRight = false;
+	bkgroundTruePos = 0;
+	checkflag = false;
+	truepos = 0;
+	zj.x = myfj.x;
+	//canIhaveFeiji=true;
+	if (roundnum == 1)
+	{
+		is_feiji = true;
+		canIhaveFeiji = true;
+	}
+	if (roundnum == 2)
+	{
+		is_feiji = false;
+		canIhaveFeiji = true;
+	}
 }
 void xiaobingCheck()
 {
 	if (isAllDied() && true)
 	{
 		roundtruekillnum++;
-		if (roundtruekillnum >= roundkillnum)
+		if (roundtruekillnum >= roundkillnum && checkflag == false)
 		{
+			Bosscxg = true;
 			isBossShowed = true;
+			checkflag = true;
 			isRenzhiShowed = true;
 		}
 		int tmp = rand() % 4;
@@ -2831,8 +3319,10 @@ void xiaobingCheck()
 	else if (isAllDied() && false)
 	{
 		roundtruekillnum++;
-		if (roundtruekillnum >= roundkillnum)
+		if (roundtruekillnum >= roundkillnum && checkflag == false)
 		{
+			Bosscxg = true;
+			checkflag = true;
 			isBossShowed = true;
 			isRenzhiShowed = true;
 		}
@@ -2859,6 +3349,7 @@ void xiaobingCheck()
 		}
 	}
 }
+
 int main()
 {
 	calScreenSize();
@@ -2866,7 +3357,7 @@ int main()
 	beforeshow();
 	mciSendString(_T("open Market.mp3 alias bkmusic"), NULL, 0, NULL);
 	mciSendString(_T("play bkmusic repeat"), NULL, 0, NULL);
-	while (1) 
+	while (1)
 	{
 		while (page == 0)
 		{
@@ -2882,7 +3373,7 @@ int main()
 				putimagePng(0.6 * WIDTH + 30, 0.5 * HEIGHT - 50, &SELECT);
 			}
 			FlushBatchDraw(); // 批量绘制
-			if (_kbhit()) //	If a key is pressed
+			if (_kbhit())	  //	If a key is pressed
 			{
 				char key;
 				key = _getch(); //	Obtain key info
@@ -2892,15 +3383,15 @@ int main()
 				}
 				if (GetAsyncKeyState(VK_RETURN))
 				{
-					if(mode == 0)
-					page = 1;
+					if (mode == 0)
+						page = 1;
 					else
 					{
 						page = 2;
 					}
 				}
 			}
-			Sleep(100);		  // 暂停
+			Sleep(100); // 暂停
 		}
 		while (page == 1 && mode == 0)
 		{
@@ -2924,7 +3415,7 @@ int main()
 				putimagePng(0.7 * WIDTH + 30, 0.7 * HEIGHT - 50, &SELECT);
 			}
 			FlushBatchDraw(); // 批量绘制
-			if (_kbhit()) //	If a key is pressed
+			if (_kbhit())	  //	If a key is pressed
 			{
 				char key;
 				key = _getch(); //	Obtain key info
@@ -2942,80 +3433,132 @@ int main()
 					page = 0;
 				}
 			}
-			Sleep(100);		  // 暂停
+			Sleep(100); // 暂停
 		}
-		while (page == 2) {
-			while (zj.life > 0 && finshedtime < 20) // 重复运行
-			{
-				if (changeFlag == true)
+		while (page == 2)
+		{
+			if (mode == 0) {
+				while (zj.life > 0 && finshedtime < 20) // 重复运行
 				{
-					finshedtime++;
-				}
-				IsPressKey();
-				check();
-				if (isBossShowed == true)
-					bosscheck();
-				else
-				{
-					if (stoptime > 0)
+					if (changeFlag == true)
 					{
-						stoptime--;
+						finshedtime++;
 					}
+					IsPressKey();
+					check();
+					if (Bosscxg == true)
+						bosscheck();
 					else
 					{
-						stoptime = stopTime;
-						xiaobingCheck();
-					}
-				}
-				checkLetterE();
-				show(); // 绘制
-				zj.shot = 0;
-				int tmppos = zj.pos;
-				if (zj.y >= groundy && is_feiji == false)
-				{
-					zj.changexy(zj.x, groundy);
-					// pos: 0 is left, 1 is right, 2 is left jump,  3 is right jump, 4 is left down, 5 is right down, 6 is left stand, 7 is right stand
-					if ((tmppos == 0 || tmppos == 2 || tmppos == 4 || tmppos == 6))
-					{
-						zj.pos = 6;
-					}
-					else
-					{
-						zj.pos = 7;
-					}
-				}
-			}
-			while (page == 2)
-			{
-				if (zj.life > 0)
-				{
-					putimagePng(WIDTH * 0.4, HEIGHT * 0.4, &WIN);
-					FlushBatchDraw(); // 批量绘制
-					Sleep(100);		  // 暂停
-				}
-				else
-				{
-					putimage(WIDTH * 0.4, HEIGHT * 0.4, &FAIL);
-					FlushBatchDraw(); // 批量绘制
-					Sleep(100);		  // 暂停
-				}
-				if (_kbhit()) //	If a key is pressed
-				{
-					char key;
-					key = _getch(); //	Obtain key info
-					if (GetAsyncKeyState(VK_RETURN))
-					{
-						if(mode == 0)
-						page = 1;
+						if (stoptime > 0)
+						{
+							stoptime--;
+						}
 						else
 						{
-							page = 0;
+							stoptime = stopTime;
+							xiaobingCheck();
 						}
-						break;
+					}
+					checkLetterE();
+					show(); // 绘制
+					zj.shot = 0;
+					int tmppos = zj.pos;
+					if (zj.y >= groundy && is_feiji == false)
+					{
+						zj.changexy(zj.x, groundy);
+						// pos: 0 is left, 1 is right, 2 is left jump,  3 is right jump, 4 is left down, 5 is right down, 6 is left stand, 7 is right stand
+						if ((tmppos == 0 || tmppos == 2 || tmppos == 4 || tmppos == 6))
+						{
+							zj.pos = 6;
+						}
+						else
+						{
+							zj.pos = 7;
+						}
+					}
+				}
+				while (page == 2)
+				{
+					if (zj.life > 0)
+					{
+						putimagePng(WIDTH * 0.4, HEIGHT * 0.4, &WIN);
+						FlushBatchDraw(); // 批量绘制
+						Sleep(100);		  // 暂停
+					}
+					else
+					{
+						putimage(WIDTH * 0.4, HEIGHT * 0.4, &FAIL);
+						FlushBatchDraw(); // 批量绘制
+						Sleep(100);		  // 暂停
+					}
+					if (_kbhit()) //	If a key is pressed
+					{
+						char key;
+						key = _getch(); //	Obtain key info
+						if (GetAsyncKeyState(VK_RETURN))
+						{
+							if (mode == 0)
+								page = 1;
+							else
+							{
+								page = 0;
+							}
+							break;
+						}
+					}
+				}
+				_getch();
+			}
+			else
+			{
+				while (zj.life > 0)
+				{
+					IsPressKey();
+					check();
+					if (isAllDied() == true)
+					{
+						roundtruekillnum++;
+						int tmp = rand() % 5;
+						if (tmp == 0)
+						{
+							adddaoshou(rand() % 3);
+						}
+						else if (tmp == 1)
+						{
+							addqiangshou(rand() % 3);
+						}
+						else if (tmp == 2)
+						{
+							addldps(rand() % 3);
+						}
+						else if (tmp == 3)
+						{
+							addrsld(rand() % 3);
+						}
+						else if (tmp == 4)
+						{
+							addfeiji(rand() % 2);
+						}
+					}
+					show();
+					zj.shot = 0;
+					int tmppos = zj.pos;
+					if (zj.y >= groundy && is_feiji == false)
+					{
+						zj.changexy(zj.x, groundy);
+						// pos: 0 is left, 1 is right, 2 is left jump,  3 is right jump, 4 is left down, 5 is right down, 6 is left stand, 7 is right stand
+						if ((tmppos == 0 || tmppos == 2 || tmppos == 4 || tmppos == 6))
+						{
+							zj.pos = 6;
+						}
+						else
+						{
+							zj.pos = 7;
+						}
 					}
 				}
 			}
-			_getch();
 		}
 	}
 	return 0;
