@@ -182,5 +182,10 @@ int main()
     g_game.draw();
     dump("/tmp/ms_shot_11.raw");
 
+    // ---- 12. 失败徽章透明叠加 ----
+    g_game.phase = PH_OVER;
+    g_game.draw();
+    dump("/tmp/ms_shot_12.raw");
+
     return 0;
 }

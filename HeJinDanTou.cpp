@@ -41,6 +41,7 @@
 #include <cstdio>     // printf：素材缺失提示
 #include <cstdarg>    // va_list：tsprintf 变参
 #include <cstring>
+#include <cstdlib>
 #include <mmsystem.h>
 #include <Windows.h>
 #include "EasyXPng.h"
@@ -2437,7 +2438,7 @@ void Game::drawToast()
 void Game::drawEndScreen()
 {
     IMAGE* img = (phase == PH_WIN) ? &g_assets.win : &g_assets.fail;
-    putimage((screenW - img->getwidth()) / 2, (screenH - img->getheight()) / 2 - 90, img);
+    putimagePng((screenW - img->getwidth()) / 2, (screenH - img->getheight()) / 2 - 90, img);
 
     TCHAR buf[64];
     tsprintf(buf, 64, _T("最终得分 %d"), score);
@@ -2453,6 +2454,14 @@ void Game::drawEndScreen()
 // ============================================================================
 
 #ifndef METAL_SLUG_NO_MAIN
+static void stopGameMusic()
+{
+    if (!g_game.musicOn) return;
+    mciSendString(_T("stop bkmusic"), NULL, 0, NULL);
+    mciSendString(_T("close bkmusic"), NULL, 0, NULL);
+    g_game.musicOn = false;
+}
+
 int main()
 {
     g_game.init();
@@ -2460,6 +2469,8 @@ int main()
     initgraph(g_game.screenW, g_game.screenH);
     BeginBatchDraw();
     setbkmode(TRANSPARENT);
+    // EasyX 关闭按钮可能直接调用 exit；正常退出和 exit 都必须释放音乐。
+    std::atexit(stopGameMusic);
 
     mciSendString(_T("open Market.mp3 alias bkmusic"), NULL, 0, NULL);
     mciSendString(_T("play bkmusic repeat"), NULL, 0, NULL);
@@ -2471,7 +2482,8 @@ int main()
     QueryPerformanceCounter(&last);
     double acc = 0.0;
 
-    while (true)
+    const HWND window = GetHWnd();
+    while (IsWindow(window))
     {
         QueryPerformanceCounter(&now);
         double dt = (double)(now.QuadPart - last.QuadPart) / (double)freq.QuadPart;
@@ -2493,6 +2505,7 @@ int main()
         Sleep(1);
     }
 
+    stopGameMusic();
     EndBatchDraw();
     closegraph();
     return 0;

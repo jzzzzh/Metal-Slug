@@ -21,6 +21,8 @@ typedef long long           LONG_PTR;
 typedef unsigned long long  UINT_PTR;
 typedef void*               HANDLE;
 typedef void*               HWND;
+static bool g_stubWindowOpen = false;
+inline BOOL IsWindow(HWND window) { return window != NULL && g_stubWindowOpen; }
 typedef void*               HDC;
 typedef void*               HGDIOBJ;
 typedef void*               HINSTANCE;

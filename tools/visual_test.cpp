@@ -328,6 +328,40 @@ static void testNativeDrawingColors()
           "offline renderer preserves native blue line color");
 }
 
+static void testEndScreenTransparency()
+{
+    for (Phase phase : {PH_WIN, PH_OVER})
+    {
+        resetScene();
+        g_game.phase = phase;
+        setfillcolor(RGB(25, 50, 75));
+        fillrectangle(0, 0, getwidth() - 1, getheight() - 1);
+        g_game.drawEndScreen();
+        IMAGE& img = phase == PH_WIN ? g_assets.win : g_assets.fail;
+        const int x = (g_game.screenW - img.getwidth()) / 2;
+        const int y = (g_game.screenH - img.getheight()) / 2 - 90;
+        const DWORD* src = GetImageBuffer(&img);
+        bool checkedTransparent = false, checkedOpaque = false;
+        for (int j = 0; j < img.getheight(); ++j)
+            for (int i = 0; i < img.getwidth(); ++i)
+            {
+                const DWORD p = src[j * img.getwidth() + i];
+                const DWORD drawn = GetImageBuffer()[(y + j) * getwidth() + x + i] & 0xffffff;
+                if ((p >> 24) == 0 && !checkedTransparent)
+                {
+                    CHECK(drawn == 0x19324b, "win/fail transparent area preserves scene, no rectangular background");
+                    checkedTransparent = true;
+                }
+                if ((p >> 24) == 255 && !checkedOpaque)
+                {
+                    CHECK(drawn == (p & 0xffffff), "win/fail emblem remains visible");
+                    checkedOpaque = true;
+                }
+            }
+        CHECK(checkedTransparent && checkedOpaque, "end screen test covers both background and emblem");
+    }
+}
+
 int main()
 {
     initgraph(1920, 1080);
@@ -342,6 +376,7 @@ int main()
     testThirdLevelSky();
     testPacingAndSupplies();
     testNativeDrawingColors();
+    testEndScreenTransparency();
     closegraph();
     printf("Visual/combat checks: %d, failures: %d\n", checks, failures);
     return failures ? 1 : 0;

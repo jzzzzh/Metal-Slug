@@ -1,10 +1,9 @@
 // Run the real entry point with a deterministic clock and stop after 120 frames.
 #include <graphics.h>
-struct StopLoop {};
 static int renderFrames = 0;
 static void testSleep(DWORD)
 {
-    if (++renderFrames == 120) throw StopLoop{};
+    if (++renderFrames == 120) g_stubWindowOpen = false;
 }
 #define Sleep testSleep
 #define main gameMain
@@ -19,9 +18,10 @@ int g_stubMouseX = 0, g_stubMouseY = 0;
 
 int main()
 {
-    try { gameMain(); } catch (const StopLoop&) {}
+    gameMain();
     printf("120 render frames / %d logic ticks\n", g_game.frameClock);
-    const bool ok = g_game.frameClock >= 118 && g_game.frameClock <= 120;
+    const bool ok = g_game.frameClock >= 118 && g_game.frameClock <= 120 &&
+                    !g_game.musicOn && !g_stubMusicOpened && !g_stubMusicPlaying && g_stubFrame == NULL;
     closegraph();
     return ok ? 0 : 1;
 }

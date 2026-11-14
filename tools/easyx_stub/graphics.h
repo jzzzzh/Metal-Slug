@@ -83,6 +83,7 @@ static COLORREF g_stubText = RGB(255, 255, 255);
 // ---- 画布 ----
 inline void initgraph(int w, int h)
 {
+    g_stubWindowOpen = true;
     g_stubScreenW = w > 0 ? w : 1920;
     g_stubScreenH = h > 0 ? h : 1080;
     g_stubFbW = g_stubScreenW;
@@ -93,8 +94,11 @@ inline void initgraph(int w, int h)
 
 inline void closegraph()
 {
+    g_stubWindowOpen = false;
     if (g_stubFrame) { free(g_stubFrame); g_stubFrame = NULL; }
 }
+
+inline HWND GetHWnd() { return g_stubWindowOpen ? (HWND)&g_stubWindowOpen : NULL; }
 
 inline void BeginBatchDraw() {}
 inline void FlushBatchDraw() {}
