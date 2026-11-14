@@ -149,9 +149,8 @@ inline BOOL GetCursorPos(POINT* pt) { pt->x = 0; pt->y = 0; return TRUE; }
 inline BOOL ScreenToClient(HWND, POINT* pt) { (void)pt; return TRUE; }
 
 // ---- 格式化（桩实现：支持 %d / %s / %%）----
-inline int swprintf_s(wchar_t* buf, size_t cap, const wchar_t* fmt, ...)
+inline int vswprintf_s(wchar_t* buf, size_t cap, const wchar_t* fmt, va_list ap)
 {
-    va_list ap; va_start(ap, fmt);
     wchar_t* out = buf;
     size_t left = cap;
     for (const wchar_t* p = fmt; *p; ++p)
@@ -179,9 +178,21 @@ inline int swprintf_s(wchar_t* buf, size_t cap, const wchar_t* fmt, ...)
         if (left > 1) { *out++ = L'%'; --left; }
         if (*p && left > 1) { *out++ = *p; --left; }
     }
-    va_end(ap);
     if (cap) *out = 0;
     return (int)(out - buf);
+}
+
+inline int swprintf_s(wchar_t* buf, size_t cap, const wchar_t* fmt, ...)
+{
+    va_list ap; va_start(ap, fmt);
+    const int n = vswprintf_s(buf, cap, fmt, ap);
+    va_end(ap);
+    return n;
+}
+
+inline int vsprintf_s(char* buf, size_t cap, const char* fmt, va_list ap)
+{
+    return vsnprintf(buf, cap, fmt, ap);
 }
 
 inline int sprintf_s(char* buf, size_t cap, const char* fmt, ...)

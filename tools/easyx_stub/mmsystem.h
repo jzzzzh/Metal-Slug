@@ -5,7 +5,7 @@
 
 #include "Windows.h"
 
-inline int mciSendString(LPCTSTR, LPCTSTR, UINT, DWORD)
+inline int mciSendString(LPCTSTR, TCHAR*, UINT, HWND)
 {
     return 0;
 }

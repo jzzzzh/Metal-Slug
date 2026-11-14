@@ -110,7 +110,7 @@ int main()
     g_game.oldMan.x = g_game.boss.x - 260.f;
     g_game.oldMan.y = (float)g_game.groundY;
     g_game.showToast(_T("BOSS 出现！"));
-    g_stubMouseX = (int)g_game.boss.x - 200;
+    g_stubMouseX = (int)(g_game.boss.x - g_game.cameraX) - 200;
     g_stubMouseY = (int)g_game.boss.y + 60;
     step(2);
     dump("/tmp/ms_shot_4.raw");

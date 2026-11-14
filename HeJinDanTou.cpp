@@ -67,9 +67,9 @@ static inline void tsprintf(TCHAR* buf, size_t cap, const TCHAR* fmt, ...)
     va_list ap;
     va_start(ap, fmt);
 #ifdef UNICODE
-    swprintf_s(buf, cap, fmt, ap);
+    vswprintf_s(buf, cap, fmt, ap);
 #else
-    sprintf_s(buf, cap, fmt, ap);
+    vsprintf_s(buf, cap, fmt, ap);
 #endif
     va_end(ap);
 }
@@ -122,6 +122,7 @@ namespace Cfg
 
     // ---- 关卡 ----
     const int   WAVE_INTERVAL_TICK = 70;   // 每波间隔
+    const int   ENDLESS_MAX_ALIVE = 64;    // 无尽模式在场敌人的硬上限
 }
 
 // ============================================================================
@@ -841,7 +842,7 @@ void Game::spawnOpeningWave()
 
 void Game::spawnWave()
 {
-    int maxAlive = endless ? 7 + waveIndex / 6 : kLevel[round].maxAlive;
+    int maxAlive = endless ? min(Cfg::ENDLESS_MAX_ALIVE, 7 + waveIndex / 6) : kLevel[round].maxAlive;
     if ((int)enemies.size() >= maxAlive)
         return;
 
@@ -850,7 +851,7 @@ void Game::spawnWave()
     for (int k = 0; k < EK_COUNT; ++k)
         totalWeight += weight[k];
 
-    const int n = rng.range(1, 3);
+    const int n = min(rng.range(1, 3), maxAlive - (int)enemies.size());
     for (int i = 0; i < n; ++i)
     {
         // 按关卡权重抽敌人类型（各关构成不同）
@@ -910,9 +911,10 @@ void Game::showToast(const TCHAR* msg)
 {
     toast.active = true;
     toast.life = 2.0f;
-    for (int i = 0; i < 47 && msg[i]; ++i)
+    int i = 0;
+    for (; i < 47 && msg[i]; ++i)
         toast.text[i] = msg[i];
-    toast.text[47] = 0;
+    toast.text[i] = 0;
 }
 
 // ---- 碰撞辅助 -------------------------------------------------------------
@@ -1081,7 +1083,7 @@ float Game::aimAngle() const
     muzzlePos(mx, my);
     if (!mouseValid)
         return player.faceRight ? 0.f : PI_F;
-    const float dx = (float)mouseX - mx;
+    const float dx = (float)mouseX + cameraX - mx;
     const float dy = (float)mouseY - my;
     if (dx * dx + dy * dy < 1.f)
         return player.faceRight ? 0.f : PI_F;
@@ -1154,6 +1156,15 @@ void Game::update()
         mouseX = m.x;
         mouseY = m.y;
         mouseValid = true;
+    }
+
+    if (input.pressed(VK_ESCAPE) &&
+        (phase == PH_PLAY || phase == PH_CLEAR || phase == PH_WIN || phase == PH_OVER))
+    {
+        phase = endless ? PH_MENU : PH_ROUND_SEL;
+        if (endless) menuSel = 1;
+        else roundSel = round;
+        return;
     }
 
     switch (phase)
@@ -1389,12 +1400,13 @@ void Game::updatePlayer(float dt)
     // ---- 机上 ----
     if (p.inPlane)
     {
-        if (left)  p.x -= Cfg::PLAYER_SPEED * 1.15f * dt;
-        if (right) p.x += Cfg::PLAYER_SPEED * 1.15f * dt;
+        if (left)  { p.x -= Cfg::PLAYER_SPEED * 1.15f * dt; p.faceRight = false; }
+        if (right) { p.x += Cfg::PLAYER_SPEED * 1.15f * dt; p.faceRight = true; }
         if (up)    p.y -= 210.f * dt;
         if (down)  p.y += 210.f * dt;
 
         p.x = clampf(p.x, cameraX + 40.f, cameraX + (float)screenW - 40.f);
+        p.x = clampf(p.x, 60.f, levelWidth - 60.f);
         p.y = clampf(p.y, 40.f, (float)groundY - 60.f);
         plane.x = p.x;
         plane.y = p.y;
@@ -2301,7 +2313,8 @@ void Game::drawEndScreen()
     outtextxy((screenW - 160) / 2, (screenH + img->getheight()) / 2 + 20, buf);
     tsprintf(buf, 64, _T("击杀数 %d"), kills);
     outtextxy((screenW - 160) / 2, (screenH + img->getheight()) / 2 + 52, buf);
-    outtextxy((screenW - 280) / 2, (screenH + img->getheight()) / 2 + 92, _T("按 回车 返回主菜单"));
+    outtextxy((screenW - 280) / 2, (screenH + img->getheight()) / 2 + 92,
+              endless ? _T("按 回车 返回主菜单") : _T("按 回车 返回选关界面"));
 }
 
 // ============================================================================
@@ -2321,7 +2334,7 @@ int main()
     mciSendString(_T("play bkmusic repeat"), NULL, 0, NULL);
 
     // 固定步长逻辑 + 独立渲染
-    const double target = 1000.0 / (double)Cfg::LOGIC_HZ;
+    const double target = 1.0 / (double)Cfg::LOGIC_HZ;  // 性能计数器换算的是秒
     LARGE_INTEGER freq, last, now;
     QueryPerformanceFrequency(&freq);
     QueryPerformanceCounter(&last);

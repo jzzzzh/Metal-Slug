@@ -26,6 +26,7 @@ echo "=============================================="
 "$CXX" $FLAGS -fsyntax-only -Wall -Wextra -Wpedantic -Wshadow -Wno-unknown-pragmas tools/headless_test.cpp
 # ANSI 构建同样要能编过（MSVC 上两种字符集都可能出现）
 "$CXX" -std=c++14 -I $STUBS -fsyntax-only -Wall -Wextra -Wpedantic -Wshadow -Wno-unknown-pragmas tools/headless_test.cpp
+"$CXX" $FLAGS -fsyntax-only -Wall -Wextra -Wpedantic -Wshadow -Wno-unknown-pragmas tools/timing_test.cpp
 echo "  通过：两种字符集均零警告"
 echo
 
@@ -38,6 +39,11 @@ echo "=============================================="
     -fno-sanitize-recover=all \
     tools/headless_test.cpp -o "$OUT"
 "$OUT"
+# 运行真实入口，防止测试直接调用 update() 而绕过主循环计时错误。
+"$CXX" $FLAGS -g -O1 -fsanitize=address,undefined \
+    -fno-omit-frame-pointer -fno-sanitize-recover=all \
+    tools/timing_test.cpp -o "${OUT}_timing"
+"${OUT}_timing"
 echo
 echo "=============================================="
 echo " 3/3  实现细节提示（仅提示，不作为通过条件）"

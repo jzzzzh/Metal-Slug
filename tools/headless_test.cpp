@@ -14,6 +14,7 @@
 #include "../HeJinDanTou.cpp"
 
 #include <cstdio>
+#include <string>
 
 // ---- 桩的全局状态 ----
 bool g_stubKeyState[256] = { false };
@@ -90,7 +91,7 @@ static void fightBoss(int frames)
         g_game.player.y = (float)g_game.groundY;
         g_game.player.hp = Cfg::PLAYER_MAX_HP;
         g_stubMouseHit = true;
-        g_stubMouseX = (int)g_game.boss.x - 40;
+        g_stubMouseX = (int)(g_game.boss.x - g_game.cameraX) - 40;
         g_stubMouseY = (int)g_game.boss.y + 60;     // 瞄准躯干
         g_stubKeyState[VK_LBUTTON] = true;
         step(1);
@@ -532,6 +533,17 @@ static void testClearRemovesBullets()
 static void testLevelWeights()
 {
     printf("== 专项 F6：各关兵种权重 ==\n");
+
+    // 三关的权重表必须真的互不相同（否则"关卡差异"只是摆设）
+    bool diff01 = false, diff12 = false, diff02 = false;
+    for (int k = 0; k < EK_COUNT; ++k)
+    {
+        if (kLevel[0].weight[k] != kLevel[1].weight[k]) diff01 = true;
+        if (kLevel[1].weight[k] != kLevel[2].weight[k]) diff12 = true;
+        if (kLevel[0].weight[k] != kLevel[2].weight[k]) diff02 = true;
+    }
+    CHECK(diff01 && diff12 && diff02, "三关的兵种权重表应互不相同");
+
     for (int lv = 0; lv < 3; ++lv)
     {
         g_game.resetRound(lv, false);
@@ -586,12 +598,79 @@ static void testMissingAssetDetection()
     CHECK(miss.getwidth() == 0, "缺失素材应得到 0x0 空图（与真实 EasyX 一致）");
 }
 
+static void testReviewRegressions()
+{
+    printf("== 第四轮：文本与滚屏瞄准 ==\n");
+    TCHAR buf[64];
+    tsprintf(buf, 64, _T("HP %d / %d"), 73, 100);
+    CHECK(std::basic_string<TCHAR>(buf) == _T("HP 73 / 100"), "HUD 必须格式化实际参数");
+    g_game.showToast(_T("a long previous message"));
+    g_game.showToast(_T("ok"));
+    CHECK(std::basic_string<TCHAR>(g_game.toast.text) == _T("ok"), "短提示不能残留上次的文字");
+    g_game.showToast(_T(""));
+    CHECK(g_game.toast.text[0] == 0, "空提示必须清空文本");
+
+    g_game.resetRound(0, false);
+    g_game.player.x = 1400.f;
+    g_game.cameraX = 1000.f;
+    g_game.mouseValid = true;
+    float mx, my;
+    g_game.muzzlePos(mx, my);
+    g_game.mouseX = (int)(mx - g_game.cameraX + 200.f);
+    g_game.mouseY = (int)my;
+    CHECK(fabsf_(g_game.aimAngle()) < 0.01f, "滚屏后屏幕右侧鼠标仍应向右瞄准");
+    g_game.mouseValid = false;
+
+    printf("== 第四轮：飞机边界 ==\n");
+    g_game.resetRound(1, false);
+    g_game.phase = PH_PLAY;
+    g_game.player.x = g_game.levelWidth - 1.f;
+    g_game.cameraX = g_game.levelWidth - g_game.screenW;
+    g_game.input.reset();
+    g_game.input.cur[VK_RIGHT] = true;
+    g_game.updatePlayer(Cfg::DT);
+    CHECK(g_game.player.x <= g_game.levelWidth - 60.f, "飞机不能越出关卡右边界");
+    g_game.player.x = 41.f;
+    g_game.cameraX = 0.f;
+    g_game.input.reset();
+    g_game.input.cur[VK_LEFT] = true;
+    g_game.updatePlayer(Cfg::DT);
+    CHECK(!g_game.player.faceRight, "飞机左移时应朝左开火");
+    CHECK(g_game.player.x >= 60.f, "飞机不能越出关卡左边界");
+    g_game.input.reset();
+
+    printf("== 第四轮：ESC 返回 ==\n");
+    for (bool endlessMode : {false, true})
+    {
+        for (Phase ph : {PH_PLAY, PH_CLEAR, PH_WIN, PH_OVER})
+        {
+            g_game.resetRound(2, endlessMode);
+            g_game.phase = ph;
+            tap(VK_ESCAPE);
+            CHECK(g_game.phase == (endlessMode ? PH_MENU : PH_ROUND_SEL), "ESC 应返回对应模式的上层界面");
+        }
+    }
+
+    printf("== 第四轮：波次容量 ==\n");
+    g_game.resetRound(0, false);
+    g_game.enemies.clear();
+    for (int i = 0; i < 5; ++i) g_game.spawnEnemy(EK_KNIFE, 500.f);
+    for (int i = 0; i < 20; ++i) g_game.spawnWave();
+    CHECK(g_game.enemies.size() <= 6, "一波生成多名敌人时也不能超过关卡上限");
+    g_game.resetRound(0, true);
+    g_game.enemies.clear();
+    g_game.waveIndex = 6000;
+    for (int i = 0; i < 300; ++i) g_game.spawnWave();
+    CHECK(g_game.enemies.size() <= 64, "无尽模式长时间运行也必须限制在场敌人数量");
+}
+
 int main()
 {
     printf("== 阶段 0：初始化 ==\n");
     initgraph(g_stubScreenW, g_stubScreenH);
     BeginBatchDraw();
     g_game.init();
+    g_game.rng.seed(0x4D534C47u);   // 固定随机序列，让失败可以稳定复现
     CHECK(g_game.phase == PH_SPLASH, "初始应为标题闪屏");
     CHECK(g_game.screenW == 1920 && g_game.screenH == 1080, "屏幕尺寸应正确");
 
@@ -745,6 +824,7 @@ int main()
     testClearRemovesBullets();
     testLevelWeights();
     testMissingAssetDetection();
+    testReviewRegressions();
 
     printf("\n===== 检查项 %d，失败 %d =====\n", g_checks, g_failures);
     if (g_failures == 0)
