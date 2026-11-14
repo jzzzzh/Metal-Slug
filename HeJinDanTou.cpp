@@ -86,8 +86,8 @@ namespace Cfg
 
     // ---- 主角 ----
     const float PLAYER_SPEED      = 240.f;
-    const float PLAYER_JUMP_V     = 300.f;
-    const float PLAYER_GRAVITY    = 300.f;
+    const float PLAYER_JUMP_V     = 480.f;
+    const float PLAYER_GRAVITY    = 1200.f; // 约 0.8 秒落地，避免跳跃长时间漂浮
     const int   PLAYER_MAX_HP     = 100;
     const int   PLAYER_INVULN     = 45;    // 受击后无敌帧
     const int   PLAYER_RIFLE_CD   = 8;     // 步枪冷却（tick）
@@ -162,7 +162,7 @@ struct Input
         // 只轮询游戏真正用到的按键
         static const int kTracked[] = {
             VK_LEFT, VK_RIGHT, VK_UP, VK_DOWN, VK_SPACE, VK_RETURN, VK_ESCAPE,
-            VK_LBUTTON, VK_1, VK_2, 'A', 'D', 'W', 'S', 'E'
+            VK_LBUTTON, '1', '2', 'A', 'D', 'W', 'S', 'E'
         };
         for (int i = 0; i < 256; ++i)
             prev[i] = cur[i];
@@ -283,6 +283,7 @@ struct FxAnim
     float x, y;
     int   set;      // 0 = deathA, 1 = deathB, 2 = bombBoom
     int   frame;
+    int   ticks;
     bool  flip;
 };
 
@@ -320,6 +321,7 @@ struct Boss
     int   cool;
     int   flash;
     bool  angry;
+    bool  faceRight;
 };
 
 struct OldMan
@@ -360,10 +362,10 @@ struct EnemySpec
 static const EnemySpec kEnemySpec[EK_COUNT] =
 {
     // hp  speed  stop  fire  dmg score idle atkStart atkFrames atkTicks artRight isPlane
-    {   3,  55.f, 300.f,  85,   1,  100,  4,   4,   3,   12,  true,  false },  // 步枪兵
-    {   2, 105.f,  30.f,   0,   2,  120,  5,   5,   2,   14,  true,  false },  // 刀兵
-    {   4,  45.f, 300.f, 130,   3,  160,  2,   2,   3,   16,  true,  false },  // 火箭兵
-    {   3,  60.f, 300.f, 120,   1,  140,  5,   5,   4,   16,  true,  false },  // 手雷兵
+    {   3,  55.f, 300.f,  85,   8,  100,  4,   4,   3,   12,  false, false },  // 原图朝左
+    {   2, 105.f,  30.f,   0,  12,  120,  5,   5,   2,   14,  false, false },
+    {   4,  45.f, 300.f, 130,  18,  160,  2,   2,   3,   16,  false, false },
+    {   3,  60.f, 300.f, 120,  14,  140,  5,   5,   4,   16,  false, false },
     {   6, 130.f,   0.f,   0,   0,  200,  1,   0,   0,    0,  false, true  },  // 敌机
 };
 
@@ -494,6 +496,7 @@ struct Game
     void  playerBox(float px, float py, float& l, float& t, float& r, float& b) const;
     void  enemyBox(const Enemy& e, float& l, float& t, float& r, float& b) const;
     void  enemyBoxAt(const Enemy& e, float x, float& l, float& t, float& r, float& b) const;
+    void  bossAttackBox(float& l, float& t, float& r, float& b) const;
     bool  boxBlockedByObstacle(float l, float t, float r, float b) const;
     bool  playerBlocked(float px, float py) const;
     bool  bulletHitsObstacle(const Bullet& b, float prevY);
@@ -577,6 +580,18 @@ void Game::loadAssets()
         int w = kBgNativeW[i] * screenH / kBgNativeH[i];
         if (w < screenW) w = screenW;
         loadOne(&g_assets.bg[i], name[i], w, screenH, true);
+        if (i == 2)
+        {
+            // 第三关原图的紫红色是天空底色键，显示时应替换为白色。
+            DWORD* pixels = GetImageBuffer(&g_assets.bg[i]);
+            const size_t count = (size_t)g_assets.bg[i].getwidth() * g_assets.bg[i].getheight();
+            for (size_t p = 0; pixels && p < count; ++p)
+            {
+                const DWORD c = pixels[p];
+                if (((c >> 16) & 255) >= 224 && ((c >> 8) & 255) <= 32 && (c & 255) >= 224)
+                    pixels[p] = 0xffffffffu;
+            }
+        }
     }
 
     // 主角身体：[层级][武器][帧]
@@ -718,6 +733,7 @@ void Game::resetRound(int roundIndex, bool endlessMode)
 
     // Boss / 老人
     boss.state = BSS_NONE;
+    boss.faceRight = false;
     boss.hp = boss.maxHp = 0;
     oldMan.active = false;
     oldMan.freed = false;
@@ -874,6 +890,7 @@ void Game::spawnFx(int set, float x, float y, bool flip)
     f.x = x; f.y = y;
     f.set = set;
     f.frame = 0;
+    f.ticks = 0;
     f.flip = flip;
     fx.push_back(f);
 }
@@ -923,6 +940,14 @@ void Game::showToast(const TCHAR* msg)
 // 否则开火瞬间贴图切到重武器、尺寸一变，主角的受击盒就会突变（B2）。
 void Game::playerBox(float px, float py, float& l, float& t, float& r, float& b) const
 {
+    if (player.inPlane)
+    {
+        const float w = (float)g_assets.planePlayer.getwidth();
+        const float h = (float)g_assets.planePlayer.getheight();
+        l = px + w * 0.10f; r = px + w * 0.90f;
+        t = py + h * 0.15f; b = py + h * 0.85f;
+        return;
+    }
     const int fh = g_assets.playerFootCount[player.stance] ? g_assets.playerFoot[player.stance][0].getheight() : 30;
     l = px + Cfg::PLAYER_HIT_W * Cfg::PLAYER_HIT_LR;
     r = px + Cfg::PLAYER_HIT_W * (1.f - Cfg::PLAYER_HIT_LR);
@@ -1013,10 +1038,12 @@ void Game::explodeAt(float x, float y, int damage, bool fromPlayer, float radius
             }
         }
     }
-    else if (!player.inPlane)
+    else
     {
-        const float ddx = (player.x + 30.f) - x;
-        const float ddy = (player.y + 30.f) - y;
+        float l, t, r, b;
+        playerBox(player.x, player.y, l, t, r, b);
+        const float ddx = (l + r) * 0.5f - x;
+        const float ddy = (t + b) * 0.5f - y;
         if (ddx * ddx + ddy * ddy < radius * radius)
             damagePlayer(damage, x);
     }
@@ -1083,7 +1110,9 @@ float Game::aimAngle() const
     muzzlePos(mx, my);
     if (!mouseValid)
         return player.faceRight ? 0.f : PI_F;
-    const float dx = (float)mouseX + cameraX - mx;
+    // 鼠标落在身体与枪口之间时，不允许子弹从向右的枪口反向飞出。
+    const float rawDx = (float)mouseX + cameraX - mx;
+    const float dx = player.faceRight ? max(1.f, rawDx) : min(-1.f, rawDx);
     const float dy = (float)mouseY - my;
     if (dx * dx + dy * dy < 1.f)
         return player.faceRight ? 0.f : PI_F;
@@ -1273,7 +1302,7 @@ void Game::updatePlay()
     // 关卡已完成：等待确认进入下一关
     if (phase == PH_CLEAR)
     {
-        if (input.pressed(VK_RETURN) || input.pressed(VK_SPACE))
+        if (input.pressed(VK_RETURN) || input.pressed(VK_SPACE) || input.pressed('E'))
         {
             if (!endless)
             {
@@ -1340,6 +1369,7 @@ void Game::updatePlay()
             boss.cool = 50;
             boss.flash = 0;
             boss.angry = false;
+            boss.faceRight = false;
             showToast(endless ? _T("BOSS 出现！无尽模式") : _T("BOSS 出现！"));
         }
     }
@@ -1377,9 +1407,9 @@ void Game::updatePlayer(float dt)
     if (p.muzzleFlash > 0) p.muzzleFlash--;
 
     // 武器切换（边缘触发，不会连发）
-    if (input.pressed(VK_1))
+    if (input.pressed('1'))
         p.weapon = WP_RIFLE;
-    if (input.pressed(VK_2))
+    if (input.pressed('2'))
     {
         if (p.cannonAmmo > 0)
             p.weapon = WP_CANNON;
@@ -1400,10 +1430,12 @@ void Game::updatePlayer(float dt)
     // ---- 机上 ----
     if (p.inPlane)
     {
-        if (left)  { p.x -= Cfg::PLAYER_SPEED * 1.15f * dt; p.faceRight = false; }
-        if (right) { p.x += Cfg::PLAYER_SPEED * 1.15f * dt; p.faceRight = true; }
-        if (up)    p.y -= 210.f * dt;
-        if (down)  p.y += 210.f * dt;
+        const int moveX = (right ? 1 : 0) - (left ? 1 : 0);
+        const int moveY = (down ? 1 : 0) - (up ? 1 : 0);
+        const float diagonal = moveX != 0 && moveY != 0 ? 0.70710678f : 1.f;
+        p.x += moveX * Cfg::PLAYER_SPEED * 1.15f * diagonal * dt;
+        p.y += moveY * 210.f * diagonal * dt;
+        if (moveX != 0) p.faceRight = moveX > 0;
 
         p.x = clampf(p.x, cameraX + 40.f, cameraX + (float)screenW - 40.f);
         p.x = clampf(p.x, 60.f, levelWidth - 60.f);
@@ -1435,20 +1467,20 @@ void Game::updatePlayer(float dt)
     const bool onGround = (p.y >= (float)groundY - 0.5f);
     bool moving = false;
 
-    if (left)
+    if (left && !right)
     {
         const float nx = p.x - Cfg::PLAYER_SPEED * dt;
         if (!playerBlocked(nx, p.y)) { p.x = nx; moving = true; }
         p.faceRight = false;
     }
-    if (right)
+    if (right && !left)
     {
         const float nx = p.x + Cfg::PLAYER_SPEED * dt;
         if (!playerBlocked(nx, p.y)) { p.x = nx; moving = true; }
         p.faceRight = true;
     }
 
-    if (up && onGround)
+    if ((input.pressed(VK_UP) || input.pressed('W')) && onGround)
         p.vy = -Cfg::PLAYER_JUMP_V;
 
     p.vy += Cfg::PLAYER_GRAVITY * dt;
@@ -1477,7 +1509,15 @@ void Game::updatePlayer(float dt)
     // 交互
     if (input.pressed('E'))
     {
-        if (plane.available && !plane.carried &&
+        if (oldMan.active && !oldMan.freed && fabsf_(p.x - oldMan.x) < 95.f)
+        {
+            oldMan.freed = true;
+            score += 500;
+            showToast(_T("人质已获救，按 E 或回车继续"));
+            if (endless) endlessCycle();
+            else phase = PH_CLEAR;
+        }
+        else if (plane.available && !plane.carried &&
             fabsf_(p.x - plane.x) < 95.f && p.y >= (float)groundY - 90.f)
         {
             p.inPlane = true;
@@ -1486,24 +1526,6 @@ void Game::updatePlayer(float dt)
             p.y = plane.y;
             p.vy = 0.f;
             showToast(_T("登上飞机"));
-        }
-        else if (oldMan.active && !oldMan.freed && fabsf_(p.x - oldMan.x) < 95.f)
-        {
-            oldMan.freed = true;
-            score += 500;
-            showToast(_T("人质已获救"));
-            if (endless)
-            {
-                // 无尽模式：救完人继续下一段，不结束游戏（A6）
-                endlessCycle();
-            }
-            else
-            {
-                // 注意：这里只切状态，不清子弹。
-                // 清弹统一放在 updatePlay() 的实体更新之后（F2），
-                // 否则本帧敌人刚开的火会补进来，子弹被冻结在过关画面上。
-                phase = PH_CLEAR;
-            }
         }
     }
 }
@@ -1566,13 +1588,17 @@ void Game::updateEnemies(float dt)
             e.fireTimer = sp.fireInterval;
             e.atkTicks = sp.atkTicks;
             e.muzzle = 8;
-            const float mx = e.x + (e.faceRight ? 48.f : -48.f);
+            const float spriteW = (float)g_assets.enemy[e.kind][sp.atkStart].getwidth();
+            const float mx = e.x + (e.faceRight ? spriteW : 0.f);
             const float my = e.y + 34.f;
+            float pl, pt, pr, pb;
+            playerBox(player.x, player.y, pl, pt, pr, pb);
+            const float aim = (float)atan2((pt + pb) * 0.5f - my, (pl + pr) * 0.5f - mx);
 
             if (e.kind == EK_RIFLEMAN)
-                spawnBullet(BLK_ENEMY_RIFLE, mx, my, e.faceRight ? 240.f : -240.f, 0.f, sp.damage, false);
+                spawnBullet(BLK_ENEMY_RIFLE, mx, my, 240.f * (float)cos(aim), 240.f * (float)sin(aim), sp.damage, false);
             else if (e.kind == EK_ROCKET)
-                spawnBullet(BLK_ENEMY_ROCKET, mx, my, e.faceRight ? 200.f : -200.f, 0.f, sp.damage, false);
+                spawnBullet(BLK_ENEMY_ROCKET, mx, my, 200.f * (float)cos(aim), 200.f * (float)sin(aim), sp.damage, false);
             else if (e.kind == EK_THROWER)
                 spawnBullet(BLK_GRENADE, mx, my, e.faceRight ? 240.f : -240.f, 0.f, sp.damage, false);
         }
@@ -1597,7 +1623,10 @@ void Game::updateEnemies(float dt)
                 e.atkHit = true;
                 if (adx <= Cfg::ENEMY_KNIFE_RANGE)
                 {
-                    damagePlayer(sp.damage, e.x);
+                    float pl, pt, pr, pb, el, et, er, eb;
+                    playerBox(player.x, player.y, pl, pt, pr, pb);
+                    enemyBox(e, el, et, er, eb);
+                    if (pb > et && pt < eb) damagePlayer(sp.damage, e.x);
                     spawnParticles(e.x + 20.f, e.y + 40.f, 6, RGB(255, 240, 200), 150.f, 3.f);
                 }
             }
@@ -1622,6 +1651,20 @@ void Game::updateBullets(float dt)
         b.x += b.vx * dt;
         b.y += b.vy * dt;
         b.age++;
+
+        // 机上玩家使用飞机碰撞盒；炸弹也可在空中直接命中飞机。
+        if (!b.fromPlayer && player.inPlane)
+        {
+            float l, t, r, bottom;
+            playerBox(player.x, player.y, l, t, r, bottom);
+            if (b.x >= l && b.x <= r && b.y >= t && b.y <= bottom)
+            {
+                damagePlayer(b.damage, b.x);
+                spawnParticles(b.x, b.y, 8, RGB(255, 120, 60), 180.f, 4.f);
+                b.alive = false;
+                continue;
+            }
+        }
 
         if (b.age > b.maxAge ||
             b.y > (float)screenH + 300.f || b.y < -500.f ||
@@ -1711,7 +1754,7 @@ void Game::updateBullets(float dt)
             }
             if (consumed) { b.alive = false; continue; }
         }
-        else if (!player.inPlane)
+        else
         {
             float l, t, r, bo;
             playerBox(player.x, player.y, l, t, r, bo);
@@ -1736,6 +1779,15 @@ void Game::updateObstacles()
     for (size_t i = 0; i < obstacles.size(); ++i)
         if (obstacles[i].flash > 0)
             obstacles[i].flash--;
+}
+
+void Game::bossAttackBox(float& l, float& t, float& r, float& b) const
+{
+    const float cx = boss.x + g_assets.bossAttack[0].getwidth() * 0.5f;
+    l = boss.faceRight ? cx : cx - 320.f;
+    r = boss.faceRight ? cx + 320.f : cx;
+    t = (float)groundY + 10.f; // 腰部横斩：及时跳跃能越过刀光
+    b = (float)groundY + 90.f;
 }
 
 void Game::updateBoss(float dt)
@@ -1776,7 +1828,18 @@ void Game::updateBoss(float dt)
         break;
 
     case BSS_IDLE:
+    {
         boss.anim = (int)(frameClock / Cfg::ANIM_DIV) % 4;
+        float pl, pt, pr, pb;
+        playerBox(player.x, player.y, pl, pt, pr, pb);
+        const float dx = (pl + pr) * 0.5f - (boss.x + g_assets.bossAttack[0].getwidth() * 0.5f);
+        boss.faceRight = dx > 0.f;
+        if (fabsf_(dx) > 230.f)
+        {
+            boss.x += (boss.faceRight ? 110.f : -110.f) * dt;
+            boss.x = clampf(boss.x, 60.f, levelWidth - (float)g_assets.bossAttack[0].getwidth());
+            break;
+        }
         if (--boss.cool <= 0)
         {
             boss.state = BSS_ATTACK;
@@ -1784,6 +1847,7 @@ void Game::updateBoss(float dt)
             boss.anim = 0;
         }
         break;
+    }
 
     case BSS_ATTACK:
     {
@@ -1793,15 +1857,13 @@ void Game::updateBoss(float dt)
         if (boss.atkTicks == total / 2)
         {
             // 刀光判定
-            const float l = boss.x - 320.f;
-            const float r = boss.x - 30.f;
-            const float t = (float)groundY - 130.f;   // 覆盖玩家站立高度
-            const float b = (float)groundY + 40.f;
+            float l, t, r, b;
+            bossAttackBox(l, t, r, b);
             float pl, pt, pr, pb;
             playerBox(player.x, player.y, pl, pt, pr, pb);
-            if (!player.inPlane && pr > l && pl < r && pb > t && pt < b)
-                damagePlayer(2, boss.x);
-            spawnParticles(boss.x - 140.f, (float)groundY - 90.f, 14, RGB(255, 255, 255), 240.f, 5.f);
+            if (pr > l && pl < r && pb > t && pt < b)
+                damagePlayer(16, boss.x);
+            spawnParticles((l + r) * 0.5f, (t + b) * 0.5f, 14, RGB(255, 255, 255), 240.f, 5.f);
             shake(7.f, 0.20f);
         }
         if (boss.atkTicks >= total)
@@ -1814,8 +1876,8 @@ void Game::updateBoss(float dt)
     }
 
     case BSS_DIE:
-        boss.anim = boss.atkTicks;
-        if (++boss.atkTicks >= 5)
+        boss.anim = boss.atkTicks / Cfg::ANIM_DIV;
+        if (++boss.atkTicks >= 5 * Cfg::ANIM_DIV)
         {
             boss.state = BSS_DEAD;
             boss.hp = 0;
@@ -1868,6 +1930,8 @@ void Game::updateFx()
     {
         FxAnim& f = fx[i];
         if (!f.alive) continue;
+        if (++f.ticks < Cfg::ANIM_DIV) continue;
+        f.ticks = 0;
         f.frame++;
         const int total = (f.set == 0) ? 5 : ((f.set == 3) ? 2 : 8);
         if (f.frame >= total)
@@ -1880,9 +1944,15 @@ void Game::updateFx()
 void Game::fireWeapon()
 {
     Player& p = player;
+    if (mouseValid)
+    {
+        const float width = p.inPlane ? (float)g_assets.planePlayer.getwidth() : (float)Cfg::PLAYER_HIT_W;
+        p.faceRight = (float)mouseX + cameraX >= p.x + width * 0.5f;
+    }
     if (p.fireCooldown > 0)
         return;
 
+    p.muzzleFlash = Cfg::MUZZLE_FRAMES; // 枪口和本次绘制的开火贴图使用同一尺寸
     float mx, my;
     muzzlePos(mx, my);
     const float ang = aimAngle();
@@ -1917,6 +1987,12 @@ void Game::killEnemy(Enemy& e)
     e.alive = false;
     kills++;
     score += kEnemySpec[e.kind].score;
+    if (kills % 10 == 0 && player.hp > 0)
+    {
+        player.hp = min(Cfg::PLAYER_MAX_HP, player.hp + 12);
+        player.cannonAmmo = min(Cfg::CANNON_AMMO_MAX, player.cannonAmmo + 12);
+        showToast(_T("击杀补给：生命 +12，炮弹 +12"));
+    }
     const IMAGE& img = g_assets.enemy[e.kind][0];
     spawnFx(rng.range(0, 1), e.x, e.y, e.faceRight);
     spawnParticles(e.x + (float)img.getwidth() * 0.5f, e.y + (float)img.getheight() * 0.45f,
@@ -1927,7 +2003,6 @@ void Game::killEnemy(Enemy& e)
 void Game::damagePlayer(int dmg, float fromX)
 {
     Player& p = player;
-    if (p.inPlane) return;          // 机上安全
     if (p.invuln > 0) return;
     if (phase != PH_PLAY) return;
 
@@ -1935,6 +2010,8 @@ void Game::damagePlayer(int dmg, float fromX)
     p.invuln = Cfg::PLAYER_INVULN;
     const float dir = (p.x < fromX) ? -1.f : 1.f;
     p.x += dir * 16.f;
+    p.x = clampf(p.x, 60.f, levelWidth - 60.f);
+    if (p.inPlane) plane.x = p.x;
     shake(9.f, 0.26f);
     spawnParticles(p.x + 30.f, p.y + 30.f, 12, RGB(255, 90, 70), 180.f, 4.f);
     if (p.hp <= 0)
@@ -1957,6 +2034,8 @@ bool Game::canInteract() const
 
 float Game::interactX() const
 {
+    if (oldMan.active && !oldMan.freed && fabsf_(player.x - oldMan.x) < 95.f)
+        return oldMan.x;
     if (plane.available && !plane.carried && fabsf_(player.x - plane.x) < 95.f)
         return plane.x;
     if (oldMan.active && !oldMan.freed)
@@ -1974,6 +2053,9 @@ void Game::draw()
     const int sy = (int)shakeY;
 
     cleardevice();
+    setbkmode(TRANSPARENT);
+    settextstyle(24, 0, _T("Microsoft YaHei"));
+    settextcolor(RGB(255, 255, 255));
 
     switch (phase)
     {
@@ -1988,9 +2070,12 @@ void Game::draw()
         drawToast();
         if (phase == PH_CLEAR)
         {
-            TCHAR buf[64];
-            tsprintf(buf, 64, _T("关卡完成！按 回车 继续"));
-            outtextxy((screenW - 320) / 2, (int)(screenH * 0.30f), buf);
+            const int x = (screenW - 680) / 2, y = (int)(screenH * 0.30f);
+            setfillcolor(RGB(20, 24, 32));
+            fillrectangle(x - 20, y - 20, x + 700, y + 90);
+            settextcolor(RGB(255, 255, 255));
+            outtextxy(x, y, _T("人质已获救！关卡完成"));
+            outtextxy(x, y + 36, _T("按 E / 回车 / 空格 继续，ESC 返回选关"));
         }
         if (phase == PH_WIN || phase == PH_OVER)
             drawEndScreen();
@@ -2081,7 +2166,7 @@ void Game::drawWorld(int sx, int sy)
     {
         IMAGE* img = nullptr;
         if (boss.state == BSS_DIE)
-            img = &g_assets.bossDie[clampi(boss.atkTicks, 0, 4)];
+            img = &g_assets.bossDie[clampi(boss.anim, 0, 4)];
         else if (boss.state == BSS_ATTACK)
             img = &g_assets.bossAttack[clampi(boss.anim, 0, 9)];
         else if (boss.angry)
@@ -2091,7 +2176,42 @@ void Game::drawWorld(int sx, int sy)
 
         const int ix = sx + (int)boss.x - camX;
         if (ix > -400 && ix < screenW + 400)
-            putimagePngFlash(ix, sy + (int)boss.y, img, boss.flash > 0 ? 200 : 0);
+        {
+            if (boss.faceRight) putToggleImagePngFlash(ix, sy + (int)boss.y, img, boss.flash > 0 ? 200 : 0);
+            else putimagePngFlash(ix, sy + (int)boss.y, img, boss.flash > 0 ? 200 : 0);
+        }
+        // 刀光与伤害共用范围，并在伤害结算的中段出现。
+        const int total = boss.angry ? 32 : 46;
+        if (boss.state == BSS_ATTACK && boss.atkTicks < total / 2 - 4)
+        {
+            float l, t, r, b;
+            bossAttackBox(l, t, r, b);
+            setfillcolor(RGB(220, 90, 30));
+            fillrectangle(sx - camX + (int)l, sy + (int)b - 4,
+                          sx - camX + (int)r, sy + (int)b);
+        }
+        if (boss.state == BSS_ATTACK && abs(boss.atkTicks - total / 2) <= 4)
+        {
+            float l, t, r, b;
+            bossAttackBox(l, t, r, b);
+            const float cx = boss.faceRight ? l : r;
+            const float cy = (t + b) * 0.5f;
+            const float dir = boss.faceRight ? 1.f : -1.f;
+            for (int trail = 0; trail < 4; ++trail)
+            {
+                setlinecolor(trail == 0 ? RGB(255, 255, 255) : RGB(120, 220, 255));
+                for (int seg = 0; seg < 24; ++seg)
+                {
+                    const float a = -PI_F * 0.5f + PI_F * (float)seg / 24.f;
+                    const float a2 = -PI_F * 0.5f + PI_F * (float)(seg + 1) / 24.f;
+                    const float reach = 320.f - trail * 8.f;
+                    const float height = (b - t) * 0.5f - trail * 3.f;
+                    line(sx - camX + (int)(cx + dir * reach * cos(a)), sy + (int)(cy + height * sin(a)),
+                         sx - camX + (int)(cx + dir * reach * cos(a2)), sy + (int)(cy + height * sin(a2)));
+                }
+            }
+            setlinecolor(RGB(255, 255, 255));
+        }
     }
 
     // ---- 老人 ----
@@ -2126,8 +2246,9 @@ void Game::drawWorld(int sx, int sy)
             putimagePng(ix, iy, &g_assets.bulletEnemyRifle);
             break;
         case BLK_ENEMY_ROCKET:
-            if (left) putToggleImagePng(ix, iy, &g_assets.bulletEnemyRocket);
-            else      putimagePng(ix, iy, &g_assets.bulletEnemyRocket);
+            // 火箭弹原图弹头朝左，和主角的子弹素材方向相反。
+            if (left) putimagePng(ix, iy, &g_assets.bulletEnemyRocket);
+            else      putToggleImagePng(ix, iy, &g_assets.bulletEnemyRocket);
             break;
         case BLK_GRENADE:
             putimagePng(ix, iy, &g_assets.bulletGrenade);
@@ -2143,10 +2264,11 @@ void Game::drawWorld(int sx, int sy)
     {
         const int ix = sx + (int)plane.x - camX;
         const int iy = sy + (int)plane.y;
+        const int flash = player.inPlane && player.invuln > 0 && ((frameClock / 3) & 1) ? 150 : 0;
         if (player.faceRight)
-            putimagePng(ix, iy, &g_assets.planePlayer);
+            putimagePngFlash(ix, iy, &g_assets.planePlayer, flash);
         else
-            putToggleImagePng(ix, iy, &g_assets.planePlayer);
+            putToggleImagePngFlash(ix, iy, &g_assets.planePlayer, flash);
     }
 
     // ---- 主角 ----
@@ -2274,6 +2396,15 @@ void Game::drawHud()
         settextcolor(RGB(255, 255, 255));
     }
 
+    // ---- 当前目标：持续显示，避免只靠两秒提示气泡引导 ----
+    const TCHAR* objective = oldMan.active && !oldMan.freed ? _T("目标：靠近人质，按 E 解救")
+        : (boss.state != BSS_NONE && boss.state != BSS_DEAD ? _T("目标：击败 BOSS，留意挥刀预备动作")
+        : _T("目标：向右推进；每 10 次击杀获得补给"));
+    const int objectiveX = (screenW - 560) / 2;
+    setfillcolor(RGB(20, 24, 32));
+    fillrectangle(objectiveX - 8, 112, objectiveX + 560, 148);
+    outtextxy(objectiveX, 116, objective);
+
     // ---- 关卡进度条 ----
     const int pW = screenW - 240, pX = 120, pY = screenH - 40;
     setlinecolor(RGB(0, 0, 0));
@@ -2291,7 +2422,7 @@ void Game::drawHud()
         fillrectangle(mx - 4, pY - 4, mx + 4, pY + 15);
     }
 
-    outtextxy(pX, pY + 22, _T("1 步枪   2 炮台   E 交互   空格 投弹"));
+    outtextxy(pX, screenH - 26, _T("1 步枪   2 炮台   E 交互   空格 投弹"));
 }
 
 void Game::drawToast()

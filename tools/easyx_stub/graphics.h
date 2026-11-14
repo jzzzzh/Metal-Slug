@@ -25,6 +25,12 @@ inline COLORREF RGB(int r, int g, int b)
     return (COLORREF)(((DWORD)(r) & 0xFF) | (((DWORD)(g) & 0xFF) << 8) | (((DWORD)(b) & 0xFF) << 16));
 }
 
+// Windows COLORREF is 0xBBGGRR; DIB pixels exposed by GetImageBuffer are 0xRRGGBB.
+inline DWORD stubDrawingPixel(COLORREF c)
+{
+    return ((c & 0xff) << 16) | (c & 0xff00) | ((c >> 16) & 0xff);
+}
+
 // ---- IMAGE ----
 class IMAGE
 {
@@ -281,6 +287,7 @@ inline void setfillcolor(COLORREF c) { g_stubFill = c; }
 inline void setlinecolor(COLORREF c) { g_stubLine = c; }
 inline void settextcolor(COLORREF c) { g_stubText = c; }
 inline void setbkmode(int) {}
+inline void settextstyle(int, int, LPCTSTR) {}
 
 inline void fillrectangle(int l, int t, int r, int b)
 {
@@ -293,14 +300,25 @@ inline void fillrectangle(int l, int t, int r, int b)
         for (int x = l; x <= r; ++x)
         {
             if (x < 0 || x >= g_stubFbW) continue;
-            g_stubFrame[(size_t)y * g_stubFbW + x] = g_stubFill;
+            g_stubFrame[(size_t)y * g_stubFbW + x] = stubDrawingPixel(g_stubFill);
         }
     }
 }
 
 inline void line(int x1, int y1, int x2, int y2)
 {
-    (void)x1; (void)y1; (void)x2; (void)y2;   // 桩里不画线
+    const int dx = abs(x2 - x1), sx = x1 < x2 ? 1 : -1;
+    const int dy = -abs(y2 - y1), sy = y1 < y2 ? 1 : -1;
+    int error = dx + dy;
+    for (;;)
+    {
+        if (g_stubFrame && x1 >= 0 && x1 < g_stubFbW && y1 >= 0 && y1 < g_stubFbH)
+            g_stubFrame[(size_t)y1 * g_stubFbW + x1] = stubDrawingPixel(g_stubLine);
+        if (x1 == x2 && y1 == y2) break;
+        const int twice = 2 * error;
+        if (twice >= dy) { error += dy; x1 += sx; }
+        if (twice <= dx) { error += dx; y1 += sy; }
+    }
 }
 
 inline void outtextxy(int x, int y, LPCTSTR str)

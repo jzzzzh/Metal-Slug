@@ -70,6 +70,7 @@ int main()
     g_game.player.hp = Cfg::PLAYER_MAX_HP;
     g_game.player.x = 520.f;
     g_game.cameraX = 0.f;
+    g_game.enemies.clear();
 
     g_game.spawnEnemy(EK_RIFLEMAN, 900.f);
     g_game.spawnEnemy(EK_RIFLEMAN, 1080.f);
@@ -140,6 +141,46 @@ int main()
     g_game.kills = 87;
     step(1);
     dump("/tmp/ms_shot_6.raw");
+
+    // ---- 8. 第三关白色天空 ----
+    g_game.resetRound(2, false);
+    g_game.phase = PH_PLAY;
+    g_game.enemies.clear();
+    g_game.player.inPlane = false;
+    g_game.plane.carried = false;
+    g_game.plane.available = false;
+    g_game.player.x = 4300.f;
+    g_game.cameraX = 3600.f;
+    g_game.draw();
+    dump("/tmp/ms_shot_8.raw");
+
+    // ---- 9/10. Boss 左右挥刀：绘制与判定共用范围 ----
+    for (int side = 0; side < 2; ++side)
+    {
+        g_game.resetRound(0, false);
+        g_game.phase = PH_PLAY;
+        g_game.enemies.clear();
+        g_game.boss.state = BSS_ATTACK;
+        g_game.boss.hp = g_game.boss.maxHp = 80;
+        g_game.boss.x = 1000.f;
+        g_game.boss.y = (float)g_game.groundY - 40.f;
+        g_game.boss.faceRight = side != 0;
+        g_game.boss.atkTicks = 23;
+        g_game.boss.anim = 5;
+        g_game.player.x = side ? 1210.f : 790.f;
+        g_game.draw();
+        dump(side ? "/tmp/ms_shot_10.raw" : "/tmp/ms_shot_9.raw");
+    }
+
+    // ---- 11. 人质解救后等待继续 ----
+    g_game.boss.state = BSS_DEAD;
+    g_game.oldMan.active = true;
+    g_game.oldMan.freed = true;
+    g_game.oldMan.x = 1100.f;
+    g_game.oldMan.y = (float)g_game.groundY;
+    g_game.phase = PH_CLEAR;
+    g_game.draw();
+    dump("/tmp/ms_shot_11.raw");
 
     return 0;
 }

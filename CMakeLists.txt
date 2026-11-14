@@ -35,6 +35,9 @@ target_include_directories(HeJinDanTou PRIVATE
 
 target_link_directories(HeJinDanTou PRIVATE "${EASYX_ROOT}/lib/x64")
 target_link_libraries(HeJinDanTou PRIVATE "${EASYX_LIB}" Winmm)
+if(EASYX_LIB STREQUAL "EasyXw")
+    target_compile_definitions(HeJinDanTou PRIVATE UNICODE _UNICODE)
+endif()
 
 # 游戏按相对路径加载素材，可执行文件必须和素材放在一起
 set_target_properties(HeJinDanTou PROPERTIES

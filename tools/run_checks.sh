@@ -27,6 +27,8 @@ echo "=============================================="
 # ANSI 构建同样要能编过（MSVC 上两种字符集都可能出现）
 "$CXX" -std=c++14 -I $STUBS -fsyntax-only -Wall -Wextra -Wpedantic -Wshadow -Wno-unknown-pragmas tools/headless_test.cpp
 "$CXX" $FLAGS -fsyntax-only -Wall -Wextra -Wpedantic -Wshadow -Wno-unknown-pragmas tools/timing_test.cpp
+"$CXX" $FLAGS -fsyntax-only -Wall -Wextra -Wpedantic -Wshadow -Wno-unknown-pragmas tools/visual_test.cpp
+"$CXX" -std=c++14 -I $STUBS -fsyntax-only -Wall -Wextra -Wpedantic -Wshadow -Wno-unknown-pragmas tools/visual_test.cpp
 echo "  通过：两种字符集均零警告"
 echo
 
@@ -44,6 +46,10 @@ echo "=============================================="
     -fno-omit-frame-pointer -fno-sanitize-recover=all \
     tools/timing_test.cpp -o "${OUT}_timing"
 "${OUT}_timing"
+"$CXX" $FLAGS -g -O1 -fsanitize=address,undefined \
+    -fno-omit-frame-pointer -fno-sanitize-recover=all \
+    tools/visual_test.cpp -o "${OUT}_visual"
+"${OUT}_visual"
 echo
 echo "=============================================="
 echo " 3/3  实现细节提示（仅提示，不作为通过条件）"
