@@ -1,0 +1,18 @@
+# 编译产物
+Debug/
+Release/
+*.obj
+*.o
+*.pdb
+*.ilk
+*.idb
+*.exe
+*.tlog/
+*.recipe
+*.log
+
+# 离线渲染用的纹理缓存（由 tools/convert_textures.py 生成）
+tools/.texcache/
+
+# 系统文件
+.DS_Store

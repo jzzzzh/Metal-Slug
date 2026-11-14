@@ -1,3565 +1,2356 @@
-﻿// 添加boss okk
-// 添加人质 okk
-// 添加桶的伤害 okk
-// 添加不能通过桶 okk
-// 添加血条 okk
-// 添加按键提示 okk
-// 添加胜利失败展示 okk
-// 添加音乐 okk
-// 显示鼠标和子弹跟随鼠标发射 ok
-// 士兵死了要有动画 okk
-// 飞机按空格释放炸弹 okk
-// 添加爆炸效果okk
-// 添加进入游戏和退出游戏 okk
-// 添加两张地图 okk
-// 打完一个可以往右移动 okk
-// 添加飞机也可以向右 okk
-// 添加第一关没有飞机，第二关只有飞机，第三关都有 okk
-// 看情况修改子弹到左边卡住的bug  okk
-// 调整子弹位置，子弹不射背后 okk
-// 背景地图换一下 okk
-// 无尽模式 okk
-// 少个血条 okk
+﻿// ============================================================================
+//  《合金弹头》Metal Slug —— 重构版
+//  语言：C++ (C++11 兼容，MSVC 2019+ / EasyX)
+//  平台：Windows
+//
+//  ── 结构重构 ─────────────────────────────────────────────────────────────
+//   · 去掉全部全局可变状态，收敛到 Game 结构体（唯一全局是只读资源表）
+//   · 5 个近乎相同的子弹类  -> 1 个 Bullet + BulletKind
+//   · 5 类敌人              -> 1 个 Enemy + EnemyKind + 配置表
+//   · 主角绘制 64 个分支    -> 表驱动（4 姿态 x 2 武器 x 2 层级）
+//   · 15 份重复碰撞代码     -> 1 套统一碰撞管线
+//   · 3 份重复的 Boss 逻辑  -> 1 套 Boss 状态机
+//   · 固定 Sleep(100) 轮询  -> 60FPS 固定步长逻辑 + 独立渲染
+//
+//  ── 修复的原版缺陷 ───────────────────────────────────────────────────────
+//   B1 range-for 中 erase 当前迭代器（迭代器失效 = 未定义行为）
+//   B2 子弹出界/命中后永不回收，无尽模式内存无限增长
+//   B3 输入包在 _kbhit() 里，"按住"键位经常按不下去
+//   B4 渲染过程中调用 rand()，敌人每帧随机取帧导致画面闪烁
+//   B5 敌人士兵朝向画反了（永远背对玩家）
+//   B6 子弹瞄准角在朝左时被整体取反，子弹往反方向飞
+//   B7 putToggleImagePng 镜像索引用错宽高，贴边时越界读
+//   B8 无敌帧缺失，被一发 grenade 直接秒杀
+//   B9 帧率被 Sleep(100) 锁死在 10FPS
+//
+//  ── 玩法调整 ─────────────────────────────────────────────────────────────
+//   · 相机跟随主角，关卡可真正横向推进
+//   · 炮台有弹药上限，HUD 显示当前武器与余弹
+//   · 受击无敌帧 + 击退 + 命中闪白 + 粒子 + 屏震
+//   · Boss 会真的挥刀攻击，带血条 / 狂暴阶段 / 死亡动画
+//   · HUD：血条、武器、分数、波次、关卡进度、Boss 血条、提示气泡
+// ============================================================================
 
 #include <graphics.h>
-#include <iostream>
 #include <conio.h>
 #include <time.h>
 #include <vector>
-#include <math.h>
-#include <list>
-#include "EasyXPng.h" // 用于显示带透明通道的png图片
-#include "toggle.h"
-#include "mmsystem.h"
+#include <algorithm>
+#include <cmath>
+#include <cstddef>
+#include <cstdio>     // printf：素材缺失提示
+#include <cstdarg>    // va_list：tsprintf 变参
+#include <cstring>
+#include <mmsystem.h>
 #include <Windows.h>
-#include "MyEasyPng.h"
+#include "EasyXPng.h"
+#include "toggle.h"
+
 #pragma warning(disable : 4996)
 #pragma comment(lib, "Winmm.lib")
+
 using namespace std;
 
-int WIDTH = 1920;		 // 画面宽度
-int HEIGHT = 1080;		 // 画面高度
-#define MaxBulletNum 200 // 最多子弹个数
-// const int MAXLIFE = 100;
-const int bk1_Width = 8800;
-const int bk1_Height = 1080;
-const int bk2_Width = 1910;
-const int bk2_Height = 224;
-const int bk3_Width = 1298;
-const int bk3_Height = 222;
-const int bkwj_width = 624;
-const int bkwj_height = 219;
-const int TIME = 100;
-const int ldbNum = 5;
-const int zjbdyqiang = 3;
-const int dangrange_x = 10;
-const int zjbdydaqiang = 3;
-const int zjbdypao = 3;
-const int zjbdydapao = 3;
-const int zjfootstand = 1;
-const int zjfootrun = 9;
-const int zjfootdun = 6;
-const int zjfootjump = 5;
-const int tiehecd = 7;
-const int v = 20;
-const int bosstimes = 10;
-const int zidan_v = 50;
-int zidan_vy = 0;
-int zidan_vx = zidan_v;
-const int my_g = 3;
-const int feijidan_vy = 20;
-const int jump_v = 30;
-const int down_y = 5;
-const int g = 0;
-const int range_x = 20;
-const int range_y = 30;
-const int MaxLife = 200;
-// const int MaxLife = 2;
-const int BossMaxLife = 70;
-int groundy = 800;
-const int direnv = 5;
-const int myfeiji_vx = 15;
-const int myfeiji_vy = 10;
-const int feiji_v = 5;
-const int qiangNum = 7;
-const int xblife = 5;
-int feiji_y = 200;
-const int feiji_life = 10;
-const int daoNum = 7;
-const int sldsNum = 9;
-const int shouliudan_vx = 30;
-const int shouliudan_vy = 6;
-const int shouliudan_g = 2;
-const int zidanshanghai = 1;
-const int dazidanshanghai = 3;
-const int direnzidanshanghai = 1;
-const int shouliudanshanghai = 10;
-const int feijidanshanghai = 10;
-const int daoshanghai = 1;
-const int direnliudanshanghai = 3;
-const int qiangshouPosRange = 40;
-const int liudanpaoshouPosRange = 100;
-const int feijiPosRange = 50;
-const int shouliudanshouPosRange = 20;
-const int tongLife = 50;
-const int poTongLife = 20;
-const int tongNum = 3;
-const int shadainum = 2;
-const int bossNum = 10;
-const int bossAngerNum = 2;
-const int bossstandNum = 4;
-const int bossdieNum = 5;
-const int DAOSHOUTIME = 5;
-const int oldmanbangNum = 3;
-const int oldmanfreeNum = 4;
-const int shibingdieNum = 5;
-const int shibingdie2Num = 8;
-// const int roundkillnum = 10;
-const int roundkillnum = 15;
-const int feijidanboomnum = 8;
-const int zidanweizhi = 10;
-int GameTime = 0;
-int roundtruekillnum = 0;
-int daoshouTime = DAOSHOUTIME;
-IMAGE im_fi;
-IMAGE im_bk1;
-IMAGE im_bk2;
-IMAGE im_bk3;
-IMAGE im_bkwj;
-IMAGE im_zj_body_qiang[zjbdyqiang];
-IMAGE im_zj_body_daqiang[zjbdydaqiang];
-IMAGE im_zj_body_pao[zjbdypao];
-IMAGE im_zj_body_dapao[zjbdydapao];
-IMAGE im_zj_foot_stand[zjfootstand];
-IMAGE im_zj_foot_run[zjfootrun];
-IMAGE im_zj_foot_dun[zjfootdun];
-IMAGE im_zj_foot_jump[zjfootjump];
-IMAGE liuDanBing[ldbNum];
-IMAGE zidan, Dazidan, drzidan;
-IMAGE im_qiangdiren[qiangNum];
-IMAGE im_dao[daoNum];
-IMAGE im_feijidan;
-IMAGE im_liudan;
-IMAGE im_shouliudan;
-IMAGE im_feiji;
-IMAGE im_slds[sldsNum];
-IMAGE im_myfeiji;
-IMAGE im_tong;
-IMAGE im_poTong;
-IMAGE im_shadai;
-IMAGE im_LetterE;
-IMAGE im_shibingdie2[shibingdie2Num];
-IMAGE im_shibingdie1[shibingdieNum];
-IMAGE im_boss[bossNum];
-IMAGE im_bossdie[bossdieNum];
-IMAGE im_bossstand[bossstandNum];
-IMAGE im_bossanger[bossAngerNum];
-IMAGE im_oldmanbang[oldmanbangNum];
-IMAGE im_oldmanfree[oldmanfreeNum];
-IMAGE im_zidanboom;
-IMAGE im_feijidanBoom[feijidanboomnum];
-IMAGE WIN;
-IMAGE FAIL;
+// ============================================================================
+//  0. 通用工具
+// ============================================================================
 
-IMAGE IM_MENU;
-IMAGE IM_ROUND1;
-IMAGE IM_ROUND2;
-IMAGE IM_ROUND3;
-IMAGE PUTONGMS;
-IMAGE WUJINGMS;
-IMAGE SELECT;
+static const float PI_F = 3.14159265f;
 
-int page = 0;
-int mode = 0;
-const int roundNum = 3;
-int roundnum = 0;
+static inline int   clampi(int v, int lo, int hi)   { return v < lo ? lo : (v > hi ? hi : v); }
+static inline float clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
+static inline float lerpf(float a, float b, float t) { return a + (b - a) * t; }
 
-int gametime = 0;
-int finshedtime = 0;
-TCHAR filename[100];
-bool isbossdied = false;
-bool is_feiji = false;
-bool isBossShowed = false;
-bool isRenzhiShowed = false;
-const int stopTime = 10;
-int stoptime = stopTime;
-bool changeFlag = false;
-bool canIhaveFeiji = false;
-TCHAR s[20];
-
-bool canIGoRight = false;
-int truepos = 0;
-int bkgroundTruePos = 0;
-bool checkflag = false;
-bool Bosscxg = false;
-void calScreenSize()
+// 宽字符格式化，兼容 Unicode / ANSI 两种编译配置
+static inline void tsprintf(TCHAR* buf, size_t cap, const TCHAR* fmt, ...)
 {
-	int no_menu_bar_width = GetSystemMetrics(SM_CXFULLSCREEN);
-	int no_menu_bar_height = GetSystemMetrics(SM_CYFULLSCREEN);
-	HEIGHT = no_menu_bar_height;
-	WIDTH = no_menu_bar_width;
-	groundy = int(0.8 * HEIGHT);
-	feiji_y = int(0.2 * HEIGHT);
-}
-class Zidan
-{
-public:
-	int x;
-	int y;
-	int vx;
-	int vy;
-	int shot_to;
-	// shot to : 0 left, 1 right
-	bool is_shoted;
-	Zidan()
-	{
-		x = 0;
-		y = 0;
-		vx = zidan_v;
-		vy = 0;
-		is_shoted = false;
-		shot_to = 0;
-	}
-	Zidan(int xx, int yy, int ss, int vx, int vy) : x(xx), y(yy), vx(vx), vy(vy), is_shoted(false), shot_to(ss)
-	{
-		y = yy + zidanweizhi;
-	}
-	void update()
-	{
-		if (is_shoted == false)
-		{
-			vy = vy + g;
-			if (shot_to == 1)
-				x = x + vx;
-			else
-			{
-				x -= vx;
-			}
-			y = y + vy;
-			if (y > HEIGHT || x < 0 || x > WIDTH)
-			{
-				is_shoted = true;
-			}
-		}
-	}
-	void show()
-	{
-		if (shot_to == 1)
-			putimagePng(x, y, &zidan);
-		else
-		{
-			putToggleImagePng(x, y, &zidan);
-		}
-	}
-};
-class DaZidan
-{
-public:
-	int x;
-	int y;
-	int vx;
-	int vy;
-	int shot_to;
-	// shot to : 0 left, 1 right
-	bool is_shoted;
-	DaZidan()
-	{
-		x = 0;
-		y = 0;
-		vy = 0;
-		vx = zidan_vx;
-		is_shoted = false;
-		shot_to = 0;
-	}
-	DaZidan(int xx, int yy, int ss, int vx, int vy) : x(xx), y(yy), vx(vx), vy(vy), is_shoted(false), shot_to(ss)
-	{
-		y = yy + zidanweizhi;
-	}
-	void update()
-	{
-		if (is_shoted == false)
-		{
-			vy = vy + g;
-			if (shot_to == 1)
-				x = x + vx;
-			else
-			{
-				x -= vx;
-			}
-			y = y + vy;
-			if (y > HEIGHT || x < 0 || x > WIDTH)
-			{
-				is_shoted = true;
-			}
-		}
-	}
-	void show()
-	{
-		if (shot_to == 1)
-			putimagePng(x, y, &Dazidan);
-		else
-		{
-			putToggleImagePng(x, y, &Dazidan);
-		}
-	}
-};
-class DRZidan
-{
-public:
-	int x;
-	int y;
-	int vx;
-	int vy;
-	int shot_to;
-	// shot to : 0 left, 1 right
-	bool is_shoted;
-	DRZidan()
-	{
-		x = 0;
-		y = 0;
-		vx = zidan_v;
-		vy = 0;
-		is_shoted = false;
-		shot_to = 0;
-	}
-	DRZidan(int xx, int yy, int ss) : x(xx), y(yy), vy(0), is_shoted(false), shot_to(ss)
-	{
-		y = yy + zidanweizhi;
-	}
-	void update()
-	{
-		if (is_shoted == false)
-		{
-			vy = vy + g;
-			if (shot_to == 1)
-				x = x + 20;
-			else
-			{
-				x -= 20;
-			}
-			y = y + vy;
-			if (y > HEIGHT || x < 0 || x > WIDTH)
-			{
-				is_shoted = true;
-			}
-		}
-	}
-	void show()
-	{
-		if (is_shoted == false)
-		{
-			if (shot_to == 1)
-				putimagePng(x, y, &drzidan);
-			else
-			{
-				putToggleImagePng(x, y, &drzidan);
-			}
-		}
-	}
-};
-class zhujue
-{
-public:
-	int x;
-	int y;
-	int pos;
-	// pos: 0 is left, 1 is right, 2 is left jump,  3 is right jump, 4 is left down, 5 is right down, 6 is left stand, 7 is right stand
-	int wq;
-	int vy;
-	// wq: 0 is shouqiang, 1 is liudanpao
-	int shot;
-	// shot: 0 is no shot, 1 is shot
-	int life;
-	list<Zidan> zidanlist;
-	list<DaZidan> dazidanlist;
-	zhujue()
-	{
-		x = 200;
-		vy = 0;
-		y = groundy;
-		pos = 1;
-		wq = 0;
-		shot = 0;
-		life = MaxLife;
-	}
-	void changexy(int xx, int yy)
-	{
-		x = xx;
-		y = yy;
-	}
-	void changePos(int poss)
-	{
-		pos = poss;
-	}
-	void changeWq(int wqq)
-	{
-		wq = wqq;
-	}
-	void drow_blood()
-	{
-		setlinecolor(RGB(255, 255, 255));
-		fillrectangle(9, 9, 11 + 200, 31);
-		setfillcolor(RGB(18, 150, 70));
-		fillrectangle(10, 10, 10 + ((200 * life) / MaxLife), 30);
-		setfillcolor(RGB(255, 255, 255));
-		setlinecolor(RGB(255, 255, 255));
-	}
-	void draw()
-	{
-		setlinecolor(RGB(255, 255, 255));
-		fillrectangle(9, 9, 11 + 200, 31);
-		setfillcolor(RGB(18, 150, 70));
-		fillrectangle(10, 10, 10 + ((200 * life) / MaxLife), 30);
-		setfillcolor(RGB(255, 255, 255));
-		setlinecolor(RGB(255, 255, 255));
-		swprintf_s(s, _T("%d"), int(life));
-		// outtextxy(100, 100, s);
-		if (shot == 0)
-		{
-			if (pos == 0)
-			{
-				if (wq == 0)
-				{
-					putimagePng(x, y, &im_zj_body_qiang[gametime % zjbdyqiang]);
-					putimagePng(x, y + im_zj_body_qiang[gametime % zjbdyqiang].getheight() - tiehecd, &im_zj_foot_run[gametime % zjfootrun]);
-				}
-				else
-				{
-					putimagePng(x, y, &im_zj_body_pao[gametime % zjbdypao]);
-					putimagePng(x, y + im_zj_body_pao[gametime % zjbdypao].getheight() - tiehecd, &im_zj_foot_run[gametime % zjfootrun]);
-				}
-			}
-			else if (pos == 1)
-			{
-				if (wq == 0)
-				{
-					putToggleImagePng(x, y, &im_zj_body_qiang[gametime % zjbdyqiang]);
-					putToggleImagePng(x, y + im_zj_body_qiang[gametime % zjbdyqiang].getheight() - tiehecd, &im_zj_foot_run[gametime % zjfootrun]);
-				}
-				else
-				{
-					putToggleImagePng(x, y, &im_zj_body_pao[gametime % zjbdypao]);
-					putToggleImagePng(x, y + im_zj_body_pao[gametime % zjbdypao].getheight() - tiehecd, &im_zj_foot_run[gametime % zjfootrun]);
-				}
-			}
-			else if (pos == 2)
-			{
-				if (wq == 0)
-				{
-					putimagePng(x, y, &im_zj_body_qiang[gametime % zjbdyqiang]);
-					putimagePng(x, y + im_zj_body_qiang[gametime % zjbdyqiang].getheight() - tiehecd, &im_zj_foot_jump[gametime % zjfootjump]);
-				}
-				else
-				{
-					putimagePng(x, y, &im_zj_body_pao[gametime % zjbdypao]);
-					putimagePng(x, y + im_zj_body_pao[gametime % zjbdypao].getheight() - tiehecd, &im_zj_foot_jump[gametime % zjfootjump]);
-				}
-			}
-			else if (pos == 3)
-			{
-				if (wq == 0)
-				{
-					putToggleImagePng(x, y, &im_zj_body_qiang[gametime % zjbdyqiang]);
-					putToggleImagePng(x, y + im_zj_body_qiang[gametime % zjbdyqiang].getheight() - tiehecd, &im_zj_foot_jump[gametime % zjfootjump]);
-				}
-				else
-				{
-					putToggleImagePng(x, y, &im_zj_body_pao[gametime % zjbdypao]);
-					putToggleImagePng(x, y + im_zj_body_pao[gametime % zjbdypao].getheight() - tiehecd, &im_zj_foot_jump[gametime % zjfootjump]);
-				}
-			}
-			else if (pos == 4)
-			{
-				if (wq == 0)
-				{
-					putimagePng(x, y, &im_zj_body_qiang[gametime % zjbdyqiang]);
-					putimagePng(x, y + im_zj_body_qiang[gametime % zjbdyqiang].getheight() - tiehecd, &im_zj_foot_dun[gametime % zjfootdun]);
-				}
-				else
-				{
-					putimagePng(x, y, &im_zj_body_pao[gametime % zjbdypao]);
-					putimagePng(x, y + im_zj_body_pao[gametime % zjbdypao].getheight() - tiehecd, &im_zj_foot_dun[gametime % zjfootdun]);
-				}
-			}
-			else if (pos == 5)
-			{
-				if (wq == 0)
-				{
-					putToggleImagePng(x, y, &im_zj_body_qiang[gametime % zjbdyqiang]);
-					putToggleImagePng(x, y + im_zj_body_qiang[gametime % zjbdyqiang].getheight() - tiehecd, &im_zj_foot_dun[gametime % zjfootdun]);
-				}
-				else
-				{
-					putToggleImagePng(x, y, &im_zj_body_pao[gametime % zjbdypao]);
-					putToggleImagePng(x, y + im_zj_body_pao[gametime % zjbdypao].getheight() - tiehecd, &im_zj_foot_dun[gametime % zjfootdun]);
-				}
-			}
-			else if (pos == 6)
-			{
-				if (wq == 0)
-				{
-					putimagePng(x, y, &im_zj_body_qiang[gametime % zjbdyqiang]);
-					putimagePng(x, y + im_zj_body_qiang[gametime % zjbdyqiang].getheight() - tiehecd, &im_zj_foot_stand[gametime % zjfootstand]);
-				}
-				else
-				{
-					putimagePng(x, y, &im_zj_body_pao[gametime % zjbdypao]);
-					putimagePng(x, y + im_zj_body_pao[gametime % zjbdypao].getheight() - tiehecd, &im_zj_foot_stand[gametime % zjfootstand]);
-				}
-			}
-			else if (pos == 7)
-			{
-				if (wq == 0)
-				{
-					putToggleImagePng(x, y, &im_zj_body_qiang[gametime % zjbdyqiang]);
-					putToggleImagePng(x, y + im_zj_body_qiang[gametime % zjbdyqiang].getheight() - tiehecd, &im_zj_foot_stand[gametime % zjfootstand]);
-				}
-				else
-				{
-					putToggleImagePng(x, y, &im_zj_body_pao[gametime % zjbdypao]);
-					putToggleImagePng(x, y + im_zj_body_pao[gametime % zjbdypao].getheight() - tiehecd, &im_zj_foot_stand[gametime % zjfootstand]);
-				}
-			}
-		}
-		else
-		{
-			if (pos == 0)
-			{
-				if (wq == 0)
-				{
-					putimagePng(x, y, &im_zj_body_daqiang[gametime % zjbdydaqiang]);
-					putimagePng(x, y + im_zj_body_daqiang[gametime % zjbdydaqiang].getheight() - tiehecd, &im_zj_foot_run[gametime % zjfootrun]);
-				}
-				else
-				{
-					putimagePng(x, y, &im_zj_body_dapao[gametime % zjbdydapao]);
-					putimagePng(x, y + im_zj_body_dapao[gametime % zjbdydapao].getheight() - tiehecd, &im_zj_foot_run[gametime % zjfootrun]);
-				}
-			}
-			else if (pos == 1)
-			{
-				if (wq == 0)
-				{
-					putToggleImagePng(x, y, &im_zj_body_daqiang[gametime % zjbdydaqiang]);
-					putToggleImagePng(x, y + im_zj_body_daqiang[gametime % zjbdydaqiang].getheight() - tiehecd, &im_zj_foot_run[gametime % zjfootrun]);
-				}
-				else
-				{
-					putToggleImagePng(x, y, &im_zj_body_dapao[gametime % zjbdydapao]);
-					putToggleImagePng(x, y + im_zj_body_dapao[gametime % zjbdydapao].getheight() - tiehecd, &im_zj_foot_run[gametime % zjfootrun]);
-				}
-			}
-			else if (pos == 2)
-			{
-				if (wq == 0)
-				{
-					putimagePng(x, y, &im_zj_body_daqiang[gametime % zjbdydaqiang]);
-					putimagePng(x, y + im_zj_body_daqiang[gametime % zjbdydaqiang].getheight() - tiehecd, &im_zj_foot_jump[gametime % zjfootjump]);
-				}
-				else
-				{
-					putimagePng(x, y, &im_zj_body_dapao[gametime % zjbdydapao]);
-					putimagePng(x, y + im_zj_body_dapao[gametime % zjbdydapao].getheight() - tiehecd, &im_zj_foot_jump[gametime % zjfootjump]);
-				}
-			}
-			else if (pos == 3)
-			{
-				if (wq == 0)
-				{
-					putToggleImagePng(x, y, &im_zj_body_daqiang[gametime % zjbdydaqiang]);
-					putToggleImagePng(x, y + im_zj_body_daqiang[gametime % zjbdydaqiang].getheight() - tiehecd, &im_zj_foot_jump[gametime % zjfootjump]);
-				}
-				else
-				{
-					putToggleImagePng(x, y, &im_zj_body_dapao[gametime % zjbdydapao]);
-					putToggleImagePng(x, y + im_zj_body_dapao[gametime % zjbdydapao].getheight() - tiehecd, &im_zj_foot_jump[gametime % zjfootjump]);
-				}
-			}
-			else if (pos == 4)
-			{
-				if (wq == 0)
-				{
-					putimagePng(x, y, &im_zj_body_daqiang[gametime % zjbdydaqiang]);
-					putimagePng(x, y + im_zj_body_daqiang[gametime % zjbdydaqiang].getheight() - tiehecd, &im_zj_foot_dun[gametime % zjfootdun]);
-				}
-				else
-				{
-					putimagePng(x, y, &im_zj_body_dapao[gametime % zjbdydapao]);
-					putimagePng(x, y + im_zj_body_dapao[gametime % zjbdydapao].getheight() - tiehecd, &im_zj_foot_dun[gametime % zjfootdun]);
-				}
-			}
-			else if (pos == 5)
-			{
-				if (wq == 0)
-				{
-					putToggleImagePng(x, y, &im_zj_body_daqiang[gametime % zjbdydaqiang]);
-					putToggleImagePng(x, y + im_zj_body_daqiang[gametime % zjbdydaqiang].getheight() - tiehecd, &im_zj_foot_dun[gametime % zjfootdun]);
-				}
-				else
-				{
-					putToggleImagePng(x, y, &im_zj_body_dapao[gametime % zjbdydapao]);
-					putToggleImagePng(x, y + im_zj_body_dapao[gametime % zjbdydapao].getheight() - tiehecd, &im_zj_foot_dun[gametime % zjfootdun]);
-				}
-			}
-			else if (pos == 6)
-			{
-				if (wq == 0)
-				{
-					putimagePng(x, y, &im_zj_body_daqiang[gametime % zjbdydaqiang]);
-					putimagePng(x, y + im_zj_body_daqiang[gametime % zjbdydaqiang].getheight() - tiehecd, &im_zj_foot_stand[gametime % zjfootstand]);
-				}
-				else
-				{
-					putimagePng(x, y, &im_zj_body_dapao[gametime % zjbdydapao]);
-					putimagePng(x, y + im_zj_body_dapao[gametime % zjbdydapao].getheight() - tiehecd, &im_zj_foot_stand[gametime % zjfootstand]);
-				}
-			}
-			else if (pos == 7)
-			{
-				if (wq == 0)
-				{
-					putToggleImagePng(x, y, &im_zj_body_daqiang[gametime % zjbdydaqiang]);
-					putToggleImagePng(x, y + im_zj_body_daqiang[gametime % zjbdydaqiang].getheight() - tiehecd, &im_zj_foot_stand[gametime % zjfootstand]);
-				}
-				else
-				{
-					putToggleImagePng(x, y, &im_zj_body_dapao[gametime % zjbdydapao]);
-					putToggleImagePng(x, y + im_zj_body_dapao[gametime % zjbdydapao].getheight() - tiehecd, &im_zj_foot_stand[gametime % zjfootstand]);
-				}
-			}
-		}
-	}
-};
-zhujue zj;
-class qiangshou
-{
-public:
-	int x;
-	int y;
-	int pos;
-	// pos : 0 left, 1 right;
-	int life;
-	int is_mov;
-	list<DRZidan> drzdlist;
-	qiangshou()
-	{
-		x = rand() % WIDTH;
-		y = groundy;
-		pos = rand() % 2;
-		life = xblife;
-		is_mov = 0;
-	}
-	void changexy(int xx, int yy)
-	{
-		x = xx;
-		y = yy;
-	}
-	void changePos(int poss)
-	{
-		pos = poss;
-	}
-	void update()
-	{
-		if (abs(x - zj.x) < qiangshouPosRange || rand() % 10 == 0)
-		{
-			is_mov = 1;
-		}
-		if (abs(x - zj.x) > qiangshouPosRange && rand() % 5 == 0)
-		{
-			is_mov = 0;
-		}
-		if (x > zj.x)
-		{
-			pos = 0;
-			if (is_mov == 0)
-			{
-				x -= rand() % direnv;
-			}
-			if (gametime % 10 == 0)
-			{
-				drzdlist.push_back(DRZidan(x, y, 0));
-			}
-		}
-		else
-		{
-			pos = 1;
-			if (is_mov == 0)
-			{
-				x += rand() % direnv;
-			}
-			if (gametime % 10 == 0)
-			{
-				drzdlist.push_back(DRZidan(x, y, 1));
-			}
-		}
-		for (auto i = drzdlist.begin(); i != drzdlist.end(); i++)
-		{
-			(*i).update();
-			//	i.show();
-		}
-	}
-	void show()
-	{
-		if (pos == 0)
-		{
-			putimagePng(x, y, &im_qiangdiren[(gametime + rand()) % qiangNum]);
-		}
-		else
-		{
-			putToggleImagePng(x, y, &im_qiangdiren[(gametime + rand()) % qiangNum]);
-		}
-		for (auto i : drzdlist)
-		{
-			// i.update();
-			i.show();
-		}
-	}
-};
-list<qiangshou> qiangshoulist;
-class liudanpao
-{
-public:
-	int x;
-	int y;
-	int vx;
-	int vy;
-	int shot_to;
-	// shot to : 0 left, 1 right
-	bool is_shoted;
-	liudanpao()
-	{
-		x = 0;
-		y = 0;
-		vx = zidan_v;
-		vy = 0;
-		is_shoted = false;
-		shot_to = 0;
-	}
-	liudanpao(int xx, int yy, int ss) : x(xx), y(yy), vy(0), is_shoted(false), shot_to(ss) {}
-	void update()
-	{
-		if (is_shoted == false)
-		{
-			vy = vy + g;
-			if (shot_to == 1)
-				x = x + 20;
-			else
-			{
-				x -= 20;
-			}
-			y = y + vy;
-			if (y > HEIGHT || x < 0 || x > WIDTH)
-			{
-				is_shoted = true;
-			}
-		}
-	}
-	void show()
-	{
-		if (is_shoted == false)
-		{
-			if (shot_to == 0)
-				putimagePng(x, y, &im_liudan);
-			else
-			{
-				putToggleImagePng(x, y, &im_liudan);
-			}
-		}
-	}
-};
-class liudanpaoshou
-{
-public:
-	int x;
-	int y;
-	int pos;
-	// pos : 0 left, 1 right;
-	int life;
-	int is_mov;
-	list<liudanpao> drzdlist;
-	liudanpaoshou()
-	{
-		x = rand() % WIDTH;
-		y = groundy;
-		pos = rand() % 2;
-		is_mov = 0;
-		life = xblife;
-	}
-	void changexy(int xx, int yy)
-	{
-		x = xx;
-		y = yy;
-	}
-	void changePos(int poss)
-	{
-		pos = poss;
-	}
-	void update()
-	{
-		if (abs(x - zj.x) < liudanpaoshouPosRange || rand() % 10 == 0)
-		{
-			is_mov = 1;
-		}
-		if (abs(x - zj.x) > liudanpaoshouPosRange && rand() % 5 == 0)
-		{
-			is_mov = 0;
-		}
-		if (x > zj.x)
-		{
-			pos = 0;
-			if (is_mov == 0)
-				x -= rand() % direnv;
-			if (gametime % 10 == 0)
-			{
-				drzdlist.push_back(liudanpao(x, y, 0));
-			}
-		}
-		else
-		{
-			pos = 1;
-			if (is_mov == 0)
-				x += rand() % direnv;
-			if (gametime % 10 == 0)
-			{
-				drzdlist.push_back(liudanpao(x, y, 1));
-			}
-		}
-		for (auto i = drzdlist.begin(); i != drzdlist.end(); i++)
-		{
-			(*i).update();
-			//	i.show();
-		}
-	}
-	void show()
-	{
-		if (pos == 0)
-		{
-			putimagePng(x, y, &liuDanBing[(gametime + rand()) % ldbNum]);
-		}
-		else
-		{
-			putToggleImagePng(x, y, &liuDanBing[(gametime + rand()) % ldbNum]);
-		}
-		for (auto i : drzdlist)
-		{
-			// i.update();
-			i.show();
-		}
-	}
-};
-list<liudanpaoshou> ldps;
-class feijidanboom
-{
-public:
-	int x;
-	int y;
-	int time;
-	feijidanboom()
-	{
-		x = 0;
-		y = 0;
-		time = 0;
-	}
-	feijidanboom(int xx, int yy)
-	{
-		x = xx;
-		y = yy;
-		time = 0;
-	}
-	bool show()
-	{
-		if (time < feijidanboomnum)
-		{
-			putimagePng(x, y, &im_feijidanBoom[time]);
-			time++;
-			return true;
-		}
-		else
-		{
-			return false;
-		}
-	}
-};
-list<feijidanboom> feijidanboomlist;
-class feijidan
-{
-public:
-	int x;
-	int y;
-	int vy;
-	bool is_bombed;
-
-	feijidan()
-	{
-		x = 0;
-		y = 0;
-		vy = feijidan_vy;
-		is_bombed = false;
-	}
-	feijidan(int xx, int yy) : x(xx), y(yy), vy(feijidan_vy), is_bombed(false) {}
-	void update()
-	{
-		if (is_bombed == false)
-		{
-			y += vy;
-			if (y >= groundy)
-			{
-				is_bombed = true;
-				feijidanboomlist.push_back(feijidanboom(x, y));
-			}
-		}
-	}
-	void show()
-	{
-		if (is_bombed == false)
-		{
-			putimagePng(x, y, &im_feijidan);
-		}
-	}
-};
-class feiji
-{
-public:
-	int x;
-	int y;
-	int pos;
-	// pos : 0 left, 1 right
-	int life;
-	int is_shoted;
-	int is_mov;
-	list<feijidan> fjdlist;
-	feiji()
-	{
-		is_mov = 0;
-		x = rand() % WIDTH;
-		y = feiji_y;
-		pos = 0;
-		life = feiji_life;
-		is_shoted = 0;
-	}
-	feiji(int xx, int poss) : x(xx), is_mov(0), pos(poss), y(feiji_y), life(feiji_life), is_shoted(0)
-	{
-	}
-	void update()
-	{
-		if (abs(x - zj.x) <= feijiPosRange || rand() % 10 == 0)
-		{
-			is_mov = 1;
-		}
-		if (abs(x - zj.x) > feijiPosRange && rand() % 25 == 0)
-		{
-			is_mov = 0;
-		}
-		if (is_shoted == 0)
-		{
-			if (x > zj.x)
-			{
-				pos = 0;
-				if (is_mov == 0)
-					x -= feiji_v;
-			}
-			else if (x < zj.x)
-			{
-				pos = 1;
-				if (is_mov == 0)
-					x += feiji_v;
-			}
-			if (gametime % 20 == 0)
-			{
-				fjdlist.push_back(feijidan(x, y));
-			}
-			for (auto i = fjdlist.begin(); i != fjdlist.end(); i++)
-			{
-				(*i).update();
-			}
-		}
-	}
-	void show()
-	{
-		if (is_shoted == 0)
-		{
-			if (pos == 0)
-			{
-				putimagePng(x, y, &im_feiji);
-			}
-			else
-			{
-				putToggleImagePng(x, y, &im_feiji);
-			}
-			for (auto i : fjdlist)
-			{
-				i.show();
-			}
-		}
-	}
-};
-list<feiji> fjlist;
-class myfeiji
-{
-public:
-	int x;
-	int y;
-	int pos;
-	// pos : 0 left, 1 right
-	int life;
-	int is_shoted;
-	list<feijidan> fjdlist;
-	myfeiji()
-	{
-		x = rand() % WIDTH;
-		y = groundy;
-		pos = 0;
-		life = feiji_life;
-		is_shoted = 0;
-	}
-	myfeiji(int xx, int poss) : x(xx), pos(poss), y(feiji_y), life(feiji_life), is_shoted(0)
-	{
-	}
-	void update(int xx, int yy, int poss)
-	{
-		x = xx;
-		y = yy;
-		pos = poss;
-	}
-	void normalupdate()
-	{
-		for (auto i = fjdlist.begin(); i != fjdlist.end(); i++)
-		{
-			(*i).update();
-		}
-	}
-	void show()
-	{
-		if (is_shoted == 0)
-		{
-			if (pos == 0)
-			{
-				putimagePng(x, y, &im_myfeiji);
-			}
-			else
-			{
-				putToggleImagePng(x, y, &im_myfeiji);
-			}
-			for (auto i : fjdlist)
-			{
-				i.show();
-			}
-		}
-	}
-};
-myfeiji myfj;
-class daoshou
-{
-public:
-	int x;
-	int y;
-	int pos;
-	// pos : 0 left, 1 right;
-	int life;
-	daoshou()
-	{
-		x = rand() % WIDTH;
-		y = groundy;
-		pos = rand() % 2;
-		life = xblife;
-	}
-	void changexy(int xx, int yy)
-	{
-		x = xx;
-		y = yy;
-	}
-	void changePos(int poss)
-	{
-		pos = poss;
-	}
-	void update()
-	{
-		if (x > zj.x)
-		{
-			pos = 0;
-			x -= rand() % direnv;
-		}
-		else
-		{
-			pos = 1;
-			x += rand() % direnv;
-		}
-	}
-	void show()
-	{
-		if (pos == 0)
-		{
-			putimagePng(x, y, &im_dao[(gametime + rand()) % daoNum]);
-		}
-		else
-		{
-			putToggleImagePng(x, y, &im_dao[(gametime + rand()) % daoNum]);
-		}
-	}
-};
-list<daoshou> dslist;
-class shouliudan
-{
-public:
-	int x;
-	int y;
-	int vx;
-	int vy;
-	int shot_to;
-	// shot to : 0 left, 1 right
-	bool is_shoted;
-	shouliudan()
-	{
-		x = 0;
-		y = 0;
-		vx = shouliudan_vx;
-		vy = -shouliudan_vy;
-		is_shoted = false;
-		shot_to = 0;
-	}
-	shouliudan(int xx, int yy, int ss) : x(xx), y(yy), vy(-shouliudan_vy), vx(shouliudan_vx), is_shoted(false), shot_to(ss) {}
-	void update()
-	{
-		if (is_shoted == false)
-		{
-			vy = vy + shouliudan_g;
-			if (shot_to == 1)
-				x = x + shouliudan_vx;
-			else
-			{
-				x -= shouliudan_vx;
-			}
-			y = y + vy;
-			if (y > groundy + 100 || x < 0 || x > WIDTH)
-			{
-				is_shoted = true;
-			}
-		}
-	}
-	void show()
-	{
-		if (is_shoted == false)
-		{
-			if (shot_to == 0)
-				putimagePng(x, y, &im_shouliudan);
-			else
-			{
-				putToggleImagePng(x, y, &im_shouliudan);
-			}
-		}
-	}
-};
-class rengshouliudanshou
-{
-public:
-	int x;
-	int y;
-	int pos;
-	// pos : 0 left, 1 right;
-	int life;
-	int is_mov;
-	list<shouliudan> sldlist;
-	rengshouliudanshou()
-	{
-		x = rand() % WIDTH;
-		y = groundy;
-		pos = rand() % 2;
-		life = xblife;
-		is_mov = 0;
-	}
-	void changexy(int xx, int yy)
-	{
-		x = xx;
-		y = yy;
-	}
-	void changePos(int poss)
-	{
-		pos = poss;
-	}
-	void update()
-	{
-		if (abs(x - zj.x) <= shouliudanshouPosRange || rand() % 10 == 0)
-		{
-			is_mov = 1;
-		}
-		if (abs(x - zj.x) > shouliudanshouPosRange && rand() % 5 == 0)
-		{
-			is_mov = 0;
-		}
-		if (x > zj.x)
-		{
-			pos = 0;
-			if (is_mov == 0)
-				x -= rand() % direnv;
-			if (gametime % 10 == 0)
-			{
-				sldlist.push_back(shouliudan(x, y, 0));
-			}
-		}
-		else
-		{
-			pos = 1;
-			if (is_mov == 0)
-				x += rand() % direnv;
-			if (gametime % 10 == 0)
-			{
-				sldlist.push_back(shouliudan(x, y, 1));
-			}
-		}
-		for (auto i = sldlist.begin(); i != sldlist.end(); i++)
-		{
-			(*i).update();
-			//	i.show();
-		}
-	}
-	void show()
-	{
-		if (pos == 0)
-		{
-			putimagePng(x, y, &im_slds[(gametime + rand()) % sldsNum]);
-		}
-		else
-		{
-			putToggleImagePng(x, y, &im_slds[(gametime + rand()) % sldsNum]);
-		}
-		for (auto i : sldlist)
-		{
-			// i.update();
-			i.show();
-		}
-	}
-};
-list<rengshouliudanshou> rsldlist;
-class tong
-{
-public:
-	int x;
-	int y;
-	int life;
-	tong()
-	{
-		do
-		{
-			x = rand() % WIDTH;
-		} while (abs(zj.x - x) <= 30);
-		y = groundy + 10;
-		life = tongLife;
-	}
-	void show()
-	{
-		if (life > poTongLife)
-		{
-			putimagePng(x, y, &im_tong);
-		}
-		else
-		{
-			putimagePng(x, y, &im_poTong);
-		}
-	}
-};
-list<tong> tongList;
-class shadai
-{
-public:
-	int x;
-	int y;
-	shadai()
-	{
-		do
-		{
-			x = rand() % WIDTH;
-		} while (abs(zj.x - x) <= 30);
-		y = groundy + 20;
-	}
-	void show()
-	{
-		putimagePng(x, y, &im_shadai);
-	}
-};
-list<shadai> shadailist;
-class boss
-{
-public:
-	int x;
-	int y;
-	int time;
-	int life;
-	int imgnum;
-	boss()
-	{
-		x = 0.7 * WIDTH;
-		y = groundy;
-		time = 0;
-		life = BossMaxLife;
-		imgnum = 0;
-	}
-	boss(int xx, int yy, int ttime, int llife)
-	{
-		x = xx;
-		y = yy;
-		time = ttime;
-		life = llife;
-		imgnum = 0;
-	}
-	bool show()
-	{
-		if (imgnum < bossNum * bosstimes)
-		{
-			putimagePng(x, y, &im_boss[(imgnum++) % bossNum]);
-			return true;
-		}
-		else
-		{
-			return false;
-		}
-	}
-};
-list<boss> bosslist;
-class bossstand
-{
-public:
-	int x;
-	int y;
-	int time;
-	int life;
-	bossstand()
-	{
-		x = 0.7 * WIDTH;
-		y = groundy;
-		time = 0;
-		life = BossMaxLife;
-	}
-	bossstand(int xx, int yy, int ttime, int llife)
-	{
-		x = xx;
-		y = yy;
-		time = ttime;
-		life = llife;
-	}
-	void show()
-	{
-		putimagePng(x, y, &im_bossstand[(gametime) % bossstandNum]);
-	}
-};
-list<bossstand> bossstandlist;
-class bossdie
-{
-public:
-	int x;
-	int y;
-	int time;
-	int life;
-	int imgnum;
-	bossdie()
-	{
-		x = 0.7 * WIDTH;
-		y = groundy;
-		time = 0;
-		life = 0;
-		imgnum = 0;
-	}
-	bool show()
-	{
-		if (imgnum < bosstimes * bossdieNum)
-		{
-			putimagePng(x, y, &im_bossdie[imgnum++ % bossdieNum]);
-			return true;
-		}
-		else
-		{
-			return false;
-		}
-	}
-};
-list<bossdie> bossdielist;
-class bossAnger
-{
-public:
-	int x;
-	int y;
-	int time;
-	int life;
-	int imgnum;
-	bossAnger()
-	{
-		x = 0.7 * WIDTH;
-		y = groundy;
-		time = 0;
-		life = 0;
-		imgnum = 0;
-	}
-	bossAnger(int xx, int yy, int ttime, int llife)
-	{
-		x = xx;
-		y = yy;
-		time = ttime;
-		life = llife;
-		imgnum = 0;
-	}
-	bossAnger(int ttime, int llife)
-	{
-		time = ttime;
-		x = 0.7 * WIDTH;
-		y = groundy;
-		life = llife;
-		imgnum = 0;
-	}
-	bool show()
-	{
-		if (imgnum < bosstimes * bossAngerNum)
-		{
-			putimagePng(x, y, &im_bossanger[imgnum++ % bossAngerNum]);
-			return true;
-		}
-		else
-		{
-			return false;
-		}
-	}
-};
-list<bossAnger> bossangerlist;
-class oldmanbang
-{
-public:
-	int x;
-	int y;
-	int imgnum;
-	oldmanbang()
-	{
-		x = int(0.85 * WIDTH);
-		y = groundy;
-		imgnum = 0;
-	}
-	bool show()
-	{
-		putimagePng(x, y, &im_oldmanbang[imgnum % oldmanbangNum]);
-		imgnum++;
-		return true;
-	}
-};
-list<oldmanbang> oldmanbanglist;
-class oldmanfree
-{
-public:
-	int x;
-	int y;
-	int imgnum;
-	oldmanfree()
-	{
-		x = int(0.85 * WIDTH);
-		y = groundy;
-		imgnum = 0;
-	}
-	oldmanfree(int xx)
-	{
-		x = xx;
-		y = groundy;
-		imgnum = 0;
-	}
-	bool show()
-	{
-		if (imgnum < oldmanfreeNum)
-		{
-			putimagePng(x, y, &im_oldmanfree[imgnum++]);
-			return true;
-		}
-		else
-		{
-			return false;
-		}
-	}
-};
-list<oldmanfree> oldmanfreelist;
-class die1man
-{
-public:
-	int x;
-	int y;
-	int imgnum;
-	die1man()
-	{
-		x = 0;
-		y = groundy;
-		imgnum = 0;
-	}
-	die1man(int xx, int yy)
-	{
-		x = xx;
-		y = yy;
-		imgnum = 0;
-	}
-	bool show()
-	{
-		if (imgnum < shibingdieNum)
-		{
-			putimagePng(x, y, &im_shibingdie1[imgnum++]);
-			return true;
-		}
-		else
-		{
-			return false;
-		}
-	}
-};
-list<die1man> die1manlist;
-class die2man
-{
-public:
-	int x;
-	int y;
-	int imgnum;
-	die2man()
-	{
-		x = 0;
-		y = groundy;
-		imgnum = 0;
-	}
-	die2man(int xx, int yy)
-	{
-		x = xx;
-		y = yy;
-		imgnum = 0;
-	}
-	bool show()
-	{
-		if (imgnum < shibingdie2Num)
-		{
-			putimagePng(x, y, &im_shibingdie2[imgnum++]);
-			return true;
-		}
-		else
-		{
-			return false;
-		}
-	}
-};
-list<die2man> die2manlist;
-class LetterE
-{
-public:
-	int x;
-	int y;
-	bool is_show;
-	LetterE()
-	{
-		x = 0;
-		y = groundy - 40;
-		is_show = false;
-	}
-	LetterE(int xx)
-	{
-		x = xx;
-		y = groundy - 40;
-		is_show = false;
-	}
-	bool change(int xx)
-	{
-		x = xx;
-		return true;
-	}
-	bool isshow()
-	{
-		is_show = true;
-		return true;
-	}
-	bool isnotshow()
-	{
-		is_show = false;
-		return true;
-	}
-	bool show()
-	{
-		putimagePng(x, y-80, &im_LetterE);
-		return true;
-	}
-};
-LetterE E;
-class zidanboom
-{
-public:
-	int x;
-	int y;
-	int pos;
-	int time;
-	zidanboom()
-	{
-		x = 0;
-		y = 0;
-		time = 5;
-		pos = 0;
-	}
-	zidanboom(int xx, int yy, int ppos)
-	{
-		x = xx;
-		y = yy;
-		pos = ppos;
-		time = 5;
-	}
-	bool show()
-	{
-		if (time > 0)
-		{
-			if (pos == 1)
-			{
-				putimagePng(x + 10, y + 20, &im_zidanboom);
-			}
-			else if (pos == 0)
-			{
-				putToggleImagePng(x - 10, y + 20, &im_zidanboom);
-			}
-			time--;
-			return true;
-		}
-		else
-		{
-			return false;
-		}
-	}
-};
-list<zidanboom> zidanboomlist;
-void startup() //  初始化函数
-{
-	srand(time(0));												// 初始化随机种子
-	loadimage(&im_fi, _T("firstImg.jpg"), WIDTH, HEIGHT, true); // 导入背景图片
-	loadimage(&im_bk1, _T("background1.png"), bk1_Width * HEIGHT / bk1_Height, HEIGHT, true);
-	loadimage(&im_bk2, _T("background2.png"), bk2_Width * HEIGHT / bk2_Height, HEIGHT, true);
-	loadimage(&im_bk3, _T("background3.png"), bk3_Width * HEIGHT / bk3_Height, HEIGHT, true);
-	loadimage(&im_bkwj, _T("bk4.png"), bkwj_width * HEIGHT / bkwj_height, HEIGHT, true);
-	loadimage(&zidan, _T("zidan.png"));
-	loadimage(&im_feijidan, _T("./feiji/zhadan.png"));
-	loadimage(&Dazidan, _T("dazidan.png"));
-	loadimage(&drzidan, _T("enemyzidan.png"));
-	loadimage(&im_liudan, _T("liudan.png"));
-	loadimage(&im_feiji, _T("./feiji/feiji.png"));
-	loadimage(&im_shouliudan, _T("./shouliudan/sld.png"));
-	loadimage(&im_myfeiji, _T("myFeiji.png"));
-	loadimage(&im_tong, _T("tong.png"));
-	loadimage(&im_poTong, _T("potong.png"));
-	loadimage(&im_shadai, _T("shadai.png"));
-	loadimage(&WIN, _T("win.png"));
-	loadimage(&FAIL, _T("fail.png"));
-	loadimage(&im_LetterE, _T("E.png"));
-	loadimage(&im_zidanboom, _T("boom.png"));
-	loadimage(&IM_MENU, _T("menu.png"), WIDTH, HEIGHT, true);
-	loadimage(&IM_ROUND1, _T("round1.png"));
-	loadimage(&IM_ROUND2, _T("round2.png"));
-	loadimage(&IM_ROUND3, _T("round3.png"));
-	loadimage(&PUTONGMS, _T("putong.png"));
-	loadimage(&WUJINGMS, _T("wujing.png"));
-	loadimage(&SELECT, _T("select.png"));
-	myfj.y = groundy;
-	for (int i = 0; i < feijidanboomnum; i++)
-	{
-		swprintf_s(filename, _T("./feiji/bomb (%d).png"), i + 1);
-		loadimage(&im_feijidanBoom[i], filename);
-	}
-	for (int i = 0; i < ldbNum; i++)
-	{
-		swprintf_s(filename, _T("./liudan/liudan (%d).png"), i + 1);
-		loadimage(&liuDanBing[i], filename);
-	}
-	for (int i = 0; i < zjbdydapao; i++)
-	{
-		swprintf_s(filename, _T("./zhujue/body/leftdapao (%d).png"), i + 1);
-		loadimage(&im_zj_body_dapao[i], filename);
-	}
-	for (int i = 0; i < zjbdypao; i++)
-	{
-		swprintf_s(filename, _T("./zhujue/body/leftpao (%d).png"), i + 1);
-		loadimage(&im_zj_body_pao[i], filename);
-	}
-	for (int i = 0; i < zjbdydaqiang; i++)
-	{
-		swprintf_s(filename, _T("./zhujue/body/leftdaqiang (%d).png"), i + 1);
-		loadimage(&im_zj_body_daqiang[i], filename);
-	}
-	for (int i = 0; i < zjbdyqiang; i++)
-	{
-		swprintf_s(filename, _T("./zhujue/body/leftqiang (%d).png"), i + 1);
-		loadimage(&im_zj_body_qiang[i], filename);
-	}
-	for (int i = 0; i < zjfootdun; i++)
-	{
-		swprintf_s(filename, _T("./zhujue/foot/leftdun (%d).png"), i + 1);
-		loadimage(&im_zj_foot_dun[i], filename);
-	}
-	for (int i = 0; i < zjfootrun; i++)
-	{
-		swprintf_s(filename, _T("./zhujue/foot/leftrun (%d).png"), i + 1);
-		loadimage(&im_zj_foot_run[i], filename);
-	}
-	for (int i = 0; i < zjfootjump; i++)
-	{
-		swprintf_s(filename, _T("./zhujue/foot/leftjump (%d).png"), i + 1);
-		loadimage(&im_zj_foot_jump[i], filename);
-	}
-	for (int i = 0; i < zjfootstand; i++)
-	{
-		swprintf_s(filename, _T("./zhujue/foot/leftstand.png"));
-		loadimage(&im_zj_foot_stand[i], filename);
-	}
-	for (int i = 0; i < qiangNum; i++)
-	{
-		swprintf_s(filename, _T("./qiang/qiang (%d).png"), i + 1);
-		loadimage(&im_qiangdiren[i], filename);
-	}
-	for (int i = 0; i < daoNum; i++)
-	{
-		swprintf_s(filename, _T("./dao/dao (%d).png"), i + 1);
-		loadimage(&im_dao[i], filename);
-	}
-	for (int i = 0; i < sldsNum; i++)
-	{
-		swprintf_s(filename, _T("./shouliudan/sld (%d).png"), i + 1);
-		loadimage(&im_slds[i], filename);
-	}
-	for (int i = 0; i < shibingdieNum; i++)
-	{
-		swprintf_s(filename, _T("./die/die (%d).png"), i + 1);
-		loadimage(&im_shibingdie1[i], filename);
-	}
-
-	for (int i = 0; i < shibingdie2Num; i++)
-	{
-		swprintf_s(filename, _T("./die2/die (%d).png"), i + 1);
-		loadimage(&im_shibingdie2[i], filename);
-	}
-	for (int i = 0; i < bossNum; i++)
-	{
-		swprintf_s(filename, _T("./boss/boss (%d).png"), i + 1);
-		loadimage(&im_boss[i], filename);
-	}
-	for (int i = 0; i < bossAngerNum; i++)
-	{
-		swprintf_s(filename, _T("./boss/bossanger (%d).png"), i + 1);
-		loadimage(&im_bossanger[i], filename);
-	}
-	for (int i = 0; i < bossstandNum; i++)
-	{
-		swprintf_s(filename, _T("./boss/bossstand (%d).png"), i + 1);
-		loadimage(&im_bossstand[i], filename);
-	}
-	for (int i = 0; i < bossdieNum; i++)
-	{
-		swprintf_s(filename, _T("./boss/bossdie (%d).png"), i + 1);
-		loadimage(&im_bossdie[i], filename);
-	}
-	for (int i = 0; i < oldmanbangNum; i++)
-	{
-		swprintf_s(filename, _T("./oldman/laorenbang (%d).png"), i + 1);
-		loadimage(&im_oldmanbang[i], filename);
-	}
-	for (int i = 0; i < oldmanfreeNum; i++)
-	{
-		swprintf_s(filename, _T("./oldman/laorenfree (%d).png"), i + 1);
-		loadimage(&im_oldmanfree[i], filename);
-	}
-	for (int t = 0; t < 0; t++)
-	{
-		qiangshoulist.push_back(qiangshou());
-	}
-	for (int t = 0; t < 0; t++)
-	{
-		rsldlist.push_back(rengshouliudanshou());
-	}
-	for (int t = 0; t < 3; t++)
-	{
-		shadailist.push_back(shadai());
-	}
-	for (int t = 0; t < 2; t++)
-	{
-		tongList.push_back(tong());
-	}
-	for (int t = 0; t < 0; t++)
-	{
-		ldps.push_back(liudanpaoshou());
-	}
-
-	for (int i = 0; i < 0; i++)
-	{
-		fjlist.push_back(feiji());
-	}
-	for (int i = 0; i < 0; i++)
-	{
-		dslist.push_back(daoshou());
-	}
-	for (int i = 0; i < 1; i++)
-	{
-		bossstandlist.push_back(bossstand());
-	}
-	for (int i = 0; i < 1; i++)
-	{
-		oldmanbanglist.push_back(oldmanbang());
-	}
-	initgraph(WIDTH, HEIGHT); // 新开一个画面
-	BeginBatchDraw();		  // 开始批量绘制
-}
-void beforeshow() // 绘制函数
-{
-	putimage(0, 0, &im_fi); // 显示背景
-	FlushBatchDraw();		// 批量绘制
-	Sleep(1000);			// 暂停
-	cleardevice();
-	while (page == 0)
-	{
-		putimage(0, 0, &IM_MENU);
-		putimagePng(0.4 * WIDTH, 0.5 * HEIGHT, &PUTONGMS);
-		putimagePng(0.6 * WIDTH, 0.5 * HEIGHT, &WUJINGMS);
-		if (mode == 0)
-		{
-			putimagePng(0.4 * WIDTH + 30, 0.5 * HEIGHT - 50, &SELECT);
-		}
-		else
-		{
-			putimagePng(0.6 * WIDTH + 30, 0.5 * HEIGHT - 50, &SELECT);
-		}
-		FlushBatchDraw(); // 批量绘制
-		if (_kbhit())	  //	If a key is pressed
-		{
-			char key;
-			key = _getch(); //	Obtain key info
-			if (GetAsyncKeyState(' '))
-			{
-				mode = 1 - mode;
-			}
-			if (GetAsyncKeyState(VK_RETURN))
-			{
-				if (mode == 0)
-					page = 1;
-				else
-				{
-					page = 2;
-				}
-			}
-		}
-		Sleep(100); // 暂停
-	}
-	while (page == 1 && mode == 0)
-	{
-		putimage(0, 0, &IM_MENU);
-		putimagePng(0.4 * WIDTH, 0.5 * HEIGHT, &PUTONGMS);
-		putimagePng(0.6 * WIDTH, 0.5 * HEIGHT, &WUJINGMS);
-		putimagePng(0.4 * WIDTH + 30, 0.5 * HEIGHT - 50, &SELECT);
-		putimagePng(0.3 * WIDTH, 0.7 * HEIGHT, &IM_ROUND1);
-		putimagePng(0.5 * WIDTH, 0.7 * HEIGHT, &IM_ROUND2);
-		putimagePng(0.7 * WIDTH, 0.7 * HEIGHT, &IM_ROUND3);
-		if (roundnum == 0)
-		{
-			putimagePng(0.3 * WIDTH + 30, 0.7 * HEIGHT - 50, &SELECT);
-		}
-		else if (roundnum == 1)
-		{
-			putimagePng(0.5 * WIDTH + 30, 0.7 * HEIGHT - 50, &SELECT);
-		}
-		else
-		{
-			putimagePng(0.7 * WIDTH + 30, 0.7 * HEIGHT - 50, &SELECT);
-		}
-		FlushBatchDraw(); // 批量绘制
-		if (_kbhit())	  //	If a key is pressed
-		{
-			char key;
-			key = _getch(); //	Obtain key info
-			if (GetAsyncKeyState(' '))
-			{
-				roundnum = (roundnum + 1) % 3;
-			}
-			if (GetAsyncKeyState(VK_RETURN))
-			{
-				page = 2;
-			}
-			if (GetAsyncKeyState(VK_ESCAPE))
-			{
-				page = 0;
-			}
-		}
-		Sleep(100); // 暂停
-	}
-}
-bool checkIsDangZhu(int x, int y, int pos)
-{
-	bool flag = false;
-	for (auto i = tongList.begin(); i != tongList.end(); i++)
-	{
-		// if (flag == false && (*i).x == x && (y > (*i).y - 60 - range_y && y < (*i).y + 10 + range_y) && pos == 1)
-		if (flag == false && (*i).x + range_x >= x && (*i).x - range_x <= x && (y > (*i).y - 40 - range_y && y < (*i).y + 20 + range_y) && pos == 1)
-		{
-			flag = true;
-		}
-		// if (flag == false && (*i).x + dangrange_x == x && (y > (*i).y - 60 - range_y && y < (*i).y + 10 + range_y) && pos == 0)
-		if (flag == false && (*i).x + dangrange_x + range_x >= x && (*i).x + dangrange_x - range_x <= x && (y > (*i).y - 40 - range_y && y < (*i).y + 20 + range_y) && pos == 0)
-		{
-			flag = true;
-		}
-	}
-	for (auto i = shadailist.begin(); i != shadailist.end(); i++)
-	{
-		// if (flag == false && (*i).x == x && (y > (*i).y - 60 - range_y && y < (*i).y + 10 + range_y) && pos == 1)
-		if (flag == false && (*i).x + range_x >= x && (*i).x - range_x <= x && (y > (*i).y - 20 - range_y && y < (*i).y + 20 + range_y) && pos == 1)
-		{
-			flag = true;
-		}
-		// if (flag == false && (*i).x + dangrange_x == x && (y > (*i).y - 60 - range_y && y < (*i).y + 10 + range_y) && pos == 0)
-		if (flag == false && (*i).x + dangrange_x + range_x >= x && (*i).x + dangrange_x - range_x <= x && (y > (*i).y - 20 - range_y && y < (*i).y + 20 + range_y) && pos == 0)
-		{
-			flag = true;
-		}
-	}
-	return flag;
-}
-void show() // 绘制函数
-{
-	gametime++;
-	if (mode == 0) {
-		if (roundnum == 0 || (roundnum == 1 && finshedtime < 20))
-			putimage(bkgroundTruePos, 0, &im_bk1); // 显示背景
-		if ((roundnum == 1 && finshedtime == 0) || (roundnum == 2 && finshedtime < 20))
-			putimage(bkgroundTruePos, 0, &im_bk2);
-		if ((roundnum == 2 && finshedtime == 0) || (roundnum == 3 && finshedtime < 20))
-			putimage(bkgroundTruePos, 0, &im_bk3);
-	}
-	else
-	{
-		putimage(bkgroundTruePos, 0, &im_bkwj);
-	}
-	for (auto i = zj.zidanlist.begin(); i != zj.zidanlist.end(); i++)
-	{
-		(*i).update();
-		(*i).show();
-	}
-	for (auto i = zj.dazidanlist.begin(); i != zj.dazidanlist.end(); i++)
-	{
-		(*i).update();
-		(*i).show();
-	}
-	for (auto i = qiangshoulist.begin(); i != qiangshoulist.end(); i++)
-	{
-		if (checkIsDangZhu((*i).x, (*i).y, (*i).pos) == false)
-			(*i).update();
-		(*i).show();
-	}
-	for (auto i = ldps.begin(); i != ldps.end(); i++)
-	{
-		if (checkIsDangZhu((*i).x, (*i).y, (*i).pos) == false)
-			(*i).update();
-		(*i).show();
-	}
-	for (auto i = fjlist.begin(); i != fjlist.end(); i++)
-	{
-		(*i).update();
-		(*i).show();
-	}
-	for (auto i = dslist.begin(); i != dslist.end(); i++)
-	{
-		if (checkIsDangZhu((*i).x, (*i).y, (*i).pos) == false)
-			(*i).update();
-		(*i).show();
-	}
-	myfj.normalupdate();
-	for (auto i = rsldlist.begin(); i != rsldlist.end(); i++)
-	{
-		if (checkIsDangZhu((*i).x, (*i).y, (*i).pos) == false)
-			(*i).update();
-		(*i).show();
-	}
-	if (is_feiji == false && (zj.vy < 0 || zj.y < groundy))
-	{
-		zj.y += zj.vy;
-		zj.vy += my_g;
-	}
-
-	for (auto i = die1manlist.begin(); i != die1manlist.end(); i++)
-	{
-		(*i).show();
-	}
-	for (auto i = die2manlist.begin(); i != die2manlist.end(); i++)
-	{
-		(*i).show();
-	}
-	// putToggleImagePng(100, 100, &liuDanBing[gametime % ldbNum]);
-	if (is_feiji == false)
-	{
-		zj.draw();
-	}
-	else
-	{
-		zj.drow_blood();
-	}
-	// putimagePng(100, 100, &liuDanBing[gametime % ldbNum]);
-	if (canIhaveFeiji == true)
-	{
-		myfj.show();
-	}
-	for (auto i = tongList.begin(); i != tongList.end(); i++)
-	{
-		(*i).show();
-	}
-	for (auto i = shadailist.begin(); i != shadailist.end(); i++)
-	{
-		(*i).show();
-	}
-	if (E.is_show == true)
-	{
-		E.show();
-	}
-	if (isBossShowed)
-	{
-		for (auto i = bosslist.begin(); i != bosslist.end(); i++)
-		{
-			(*i).show();
-		}
-		for (auto i = bossangerlist.begin(); i != bossangerlist.end(); i++)
-		{
-			(*i).show();
-		}
-		for (auto i = bossstandlist.begin(); i != bossstandlist.end(); i++)
-		{
-			(*i).show();
-		}
-		for (auto i = bossdielist.begin(); i != bossdielist.end(); i++)
-		{
-			(*i).show();
-		}
-	}
-	if (isRenzhiShowed)
-	{
-		for (auto i = oldmanbanglist.begin(); i != oldmanbanglist.end(); i++)
-		{
-			(*i).show();
-		}
-		for (auto i = oldmanfreelist.begin(); i != oldmanfreelist.end(); i++)
-		{
-			(*i).show();
-		}
-	}
-	for (auto i = zidanboomlist.begin(); i != zidanboomlist.end(); i++)
-	{
-		if ((*i).show() == false)
-		{
-			zidanboomlist.erase(i);
-		}
-	}
-	for (auto i = feijidanboomlist.begin(); i != feijidanboomlist.end(); i++)
-	{
-		if ((*i).show() == false)
-		{
-			feijidanboomlist.erase(i);
-		}
-	}
-	if (mode == 1)
-	{
-		outtextxy(0.85 * WIDTH, 50, _T("击敌数："));
-		swprintf_s(s, _T("%d"), int(roundtruekillnum-1));
-		outtextxy(0.9 * WIDTH, 50, s);
-	}
-	FlushBatchDraw(); // 批量绘制
-	Sleep(100);		  // 暂停
-}
-bool isAllDied()
-{
-	if (qiangshoulist.size() == 0 && ldps.size() == 0 && fjlist.size() == 0 && dslist.size() == 0 && rsldlist.size() == 0)
-	{
-		return true;
-	}
-	else
-	{
-		return false;
-	}
-}
-void addqiangshou(int n)
-{
-	for (int t = 0; t < n; t++)
-	{
-		qiangshoulist.push_back(qiangshou());
-	}
-}
-void addrsld(int n)
-{
-	for (int t = 0; t < n; t++)
-	{
-		rsldlist.push_back(rengshouliudanshou());
-	}
-}
-void addldps(int n)
-{
-	for (int t = 0; t < n; t++)
-	{
-		ldps.push_back(liudanpaoshou());
-	}
-}
-void addfeiji(int n)
-{
-	for (int i = 0; i < n; i++)
-	{
-		fjlist.push_back(feiji());
-	}
-}
-void adddaoshou(int n)
-{
-	for (int i = 0; i < n; i++)
-	{
-		dslist.push_back(daoshou());
-	}
-}
-void addTong(int n)
-{
-	for (int i = 0; i < n; i++)
-	{
-		tongList.push_back(tong());
-	}
-}
-void addShadai(int n)
-{
-	for (int i = 0; i < n; i++)
-	{
-		shadailist.push_back(shadai());
-	}
-}
-void round1()
-{
-	if (roundnum == 0) {
-		for (int t = 0; t < 1; t++)
-		{
-			qiangshoulist.push_back(qiangshou());
-		}
-		for (int t = 0; t < 0; t++)
-		{
-			rsldlist.push_back(rengshouliudanshou());
-		}
-		for (int t = 0; t < 1; t++)
-		{
-			ldps.push_back(liudanpaoshou());
-		}
-
-		for (int i = 0; i < 0; i++)
-		{
-			fjlist.push_back(feiji());
-		}
-		for (int i = 0; i < 1; i++)
-		{
-			dslist.push_back(daoshou());
-		}
-	}
-	else if (roundnum == 1)
-	{
-		addfeiji(3);
-		addldps(2);
-		addqiangshou(3);
-		adddaoshou(2);
-	}
-	else
-	{
-		addfeiji(2);
-		addldps(2);
-		adddaoshou(2);
-		addrsld(3);
-		addqiangshou(2);
-	}
-}
-void round2()
-{
-	if (roundnum == 0) {
-		for (int t = 0; t < 1; t++)
-		{
-			qiangshoulist.push_back(qiangshou());
-		}
-		for (int t = 0; t < 2; t++)
-		{
-			rsldlist.push_back(rengshouliudanshou());
-		}
-		for (int t = 0; t < 0; t++)
-		{
-			ldps.push_back(liudanpaoshou());
-		}
-
-		for (int i = 0; i < 1; i++)
-		{
-			fjlist.push_back(feiji());
-		}
-		for (int i = 0; i < 0; i++)
-		{
-			dslist.push_back(daoshou());
-		}
-		addShadai(2);
-		addTong(3);
-	}
-	else if (roundnum == 1)
-	{
-		addfeiji(4);
-		adddaoshou(2);
-		addldps(5);
-		addShadai(1);
-		addTong(3);
-	}
-	else
-	{
-		addfeiji(2);
-		adddaoshou(2);
-		addldps(2);
-		addqiangshou(2);
-		addrsld(2);
-		addShadai(2);
-		addTong(2);
-	}
-}
-void round3()
-{
-	if (roundnum == 0) {
-		for (int t = 0; t < 1; t++)
-		{
-			qiangshoulist.push_back(qiangshou());
-		}
-		for (int t = 0; t < 1; t++)
-		{
-			rsldlist.push_back(rengshouliudanshou());
-		}
-		for (int t = 0; t < 1; t++)
-		{
-			ldps.push_back(liudanpaoshou());
-		}
-
-		for (int i = 0; i < 2; i++)
-		{
-			fjlist.push_back(feiji());
-		}
-		for (int i = 0; i < 1; i++)
-		{
-			dslist.push_back(daoshou());
-		}
-		addShadai(1);
-		addTong(5);
-	}
-	else if (roundnum == 1)
-	{
-		addfeiji(5);
-		addqiangshou(2);
-		addShadai(2);
-		addTong(2);
-	}
-	else
-	{
-		addfeiji(2);
-		addqiangshou(4);
-		adddaoshou(4);
-		addShadai(0);
-		addTong(5);
-	}
-}
-void addDiePerson(int x, int y)
-{
-	int tmp = rand() % 2;
-	if (tmp == 0)
-	{
-		die1manlist.push_back(die1man(x, y + 40));
-	}
-	else
-	{
-		die2manlist.push_back(die2man(x, y + 40));
-	}
-}
-bool checkZhangAiWu(int x, int y, int cost)
-{
-	bool flag = false;
-	for (auto i = tongList.begin(); i != tongList.end(); i++)
-	{
-		if (flag == false && (*i).x - range_x < x && x < (*i).x + range_x && (y > (*i).y - range_y && y < (*i).y + range_y))
-		{
-			if ((*i).life)
-			{
-				(*i).life -= cost;
-				flag = true;
-			}
-			else
-			{
-				tongList.erase(i);
-			}
-		}
-	}
-	for (auto i = shadailist.begin(); i != shadailist.end(); i++)
-	{
-		if (flag == false && (*i).x - range_x < x && x < (*i).x + range_x && (y > (*i).y - range_y && y < (*i).y + range_y))
-		{
-			flag = true;
-		}
-	}
-	return flag;
-}
-void check()
-{
-	// check my zidan
-	for (auto k = zj.dazidanlist.begin(); k != zj.dazidanlist.end(); k++)
-	{
-		int tmpx = (*k).x;
-		int tmpy = (*k).y;
-		int pos = (*k).shot_to;
-		bool t = checkZhangAiWu(tmpx, tmpy, dazidanshanghai);
-		if (t == true)
-		{
-			zj.dazidanlist.erase(k);
-			zidanboomlist.push_back(zidanboom(tmpx, tmpy, pos));
-		}
-		else
-		{
-			bool flag = false;
-			for (auto i = qiangshoulist.begin(); i != qiangshoulist.end() && flag == false; i++)
-			{
-				if ((tmpx > (*i).x - range_x && tmpx < (*i).x + range_x) && (tmpy > (*i).y - range_y && tmpy < (*i).y + range_y))
-				{
-					zj.dazidanlist.erase(k);
-					zidanboomlist.push_back(zidanboom(tmpx, tmpy, pos));
-					flag = true;
-					(*i).life -= dazidanshanghai;
-					if ((*i).life <= 0)
-					{
-						addDiePerson((*i).x, (*i).y);
-						qiangshoulist.erase(i);
-					}
-					break;
-				}
-			}
-
-			for (auto i = ldps.begin(); i != ldps.end() && flag == false; i++)
-			{
-				if ((tmpx > (*i).x - range_x && tmpx < (*i).x + range_x) && (tmpy > (*i).y - range_y && tmpy < (*i).y + range_y))
-				{
-					zj.dazidanlist.erase(k);
-					zidanboomlist.push_back(zidanboom(tmpx, tmpy, pos));
-					flag = true;
-					(*i).life -= dazidanshanghai;
-					if ((*i).life <= 0)
-					{
-						addDiePerson((*i).x, (*i).y);
-						ldps.erase(i);
-					}
-					break;
-				}
-			}
-
-			for (auto i = fjlist.begin(); i != fjlist.end() && flag == false; i++)
-			{
-				if ((tmpx > (*i).x - range_x && tmpx < (*i).x + range_x) && (tmpy > (*i).y - range_y && tmpy < (*i).y + range_y))
-				{
-					zj.dazidanlist.erase(k);
-					zidanboomlist.push_back(zidanboom(tmpx, tmpy, pos));
-					flag = true;
-					(*i).life -= dazidanshanghai;
-					if ((*i).life <= 0)
-					{
-						fjlist.erase(i);
-						// addDiePerson((*i).x, (*i).y);
-					}
-					break;
-				}
-			}
-
-			for (auto i = dslist.begin(); i != dslist.end() && flag == false; i++)
-			{
-				if ((tmpx > (*i).x - range_x && tmpx < (*i).x + range_x) && (tmpy > (*i).y - range_y && tmpy < (*i).y + range_y))
-				{
-					zj.dazidanlist.erase(k);
-					zidanboomlist.push_back(zidanboom(tmpx, tmpy, pos));
-					flag = true;
-					(*i).life -= dazidanshanghai;
-					if ((*i).life <= 0)
-					{
-						addDiePerson((*i).x, (*i).y);
-						dslist.erase(i);
-					}
-					break;
-				}
-			}
-
-			for (auto i = rsldlist.begin(); i != rsldlist.end() && flag == false; i++)
-			{
-				if ((tmpx > (*i).x - range_x && tmpx < (*i).x + range_x) && (tmpy > (*i).y - range_y && tmpy < (*i).y + range_y))
-				{
-					zj.dazidanlist.erase(k);
-					zidanboomlist.push_back(zidanboom(tmpx, tmpy, pos));
-					flag = true;
-					(*i).life -= dazidanshanghai;
-					if ((*i).life <= 0)
-					{
-						addDiePerson((*i).x, (*i).y);
-						rsldlist.erase(i);
-					}
-					break;
-				}
-			}
-			if (tmpx < 0)
-			{
-				zj.dazidanlist.erase(k);
-			}
-		}
-	}
-	for (auto k = zj.zidanlist.begin(); k != zj.zidanlist.end(); k++)
-	{
-		int tmpx = (*k).x;
-		int tmpy = (*k).y;
-		int pos = (*k).shot_to;
-		bool t = checkZhangAiWu(tmpx, tmpy, zidanshanghai);
-		if (t == true)
-		{
-			zj.zidanlist.erase(k);
-			zidanboomlist.push_back(zidanboom(tmpx, tmpy, pos));
-		}
-		else
-		{
-			bool flag = false;
-			for (auto i = qiangshoulist.begin(); i != qiangshoulist.end() && flag == false; i++)
-			{
-				if ((tmpx > (*i).x - range_x && tmpx < (*i).x + range_x) && (tmpy > (*i).y - range_y && tmpy < (*i).y + range_y))
-				{
-					zj.zidanlist.erase(k);
-					zidanboomlist.push_back(zidanboom(tmpx, tmpy, pos));
-					flag = true;
-					(*i).life -= zidanshanghai;
-					if ((*i).life <= 0)
-					{
-						addDiePerson((*i).x, (*i).y);
-						qiangshoulist.erase(i);
-					}
-					break;
-				}
-			}
-
-			for (auto i = ldps.begin(); i != ldps.end() && flag == false; i++)
-			{
-				if ((tmpx > (*i).x - range_x && tmpx < (*i).x + range_x) && (tmpy > (*i).y - range_y && tmpy < (*i).y + range_y))
-				{
-					zj.zidanlist.erase(k);
-					zidanboomlist.push_back(zidanboom(tmpx, tmpy, pos));
-					flag = true;
-					(*i).life -= zidanshanghai;
-					if ((*i).life <= 0)
-					{
-						addDiePerson((*i).x, (*i).y);
-						ldps.erase(i);
-					}
-					break;
-				}
-			}
-
-			for (auto i = fjlist.begin(); i != fjlist.end() && flag == false; i++)
-			{
-				if ((tmpx > (*i).x - range_x && tmpx < (*i).x + range_x) && (tmpy > (*i).y - range_y && tmpy < (*i).y + range_y))
-				{
-					zj.zidanlist.erase(k);
-					zidanboomlist.push_back(zidanboom(tmpx, tmpy, pos));
-					flag = true;
-					(*i).life -= zidanshanghai;
-					if ((*i).life <= 0)
-					{
-						fjlist.erase(i);
-					}
-					break;
-				}
-			}
-
-			for (auto i = dslist.begin(); i != dslist.end() && flag == false; i++)
-			{
-				if ((tmpx > (*i).x - range_x && tmpx < (*i).x + range_x) && (tmpy > (*i).y - range_y && tmpy < (*i).y + range_y))
-				{
-					zj.zidanlist.erase(k);
-					zidanboomlist.push_back(zidanboom(tmpx, tmpy, pos));
-					flag = true;
-					(*i).life -= zidanshanghai;
-					if ((*i).life <= 0)
-					{
-						addDiePerson((*i).x, (*i).y);
-						dslist.erase(i);
-					}
-					break;
-				}
-			}
-
-			for (auto i = rsldlist.begin(); i != rsldlist.end() && flag == false; i++)
-			{
-				if ((tmpx > (*i).x - range_x && tmpx < (*i).x + range_x) && (tmpy > (*i).y - range_y && tmpy < (*i).y + range_y))
-				{
-					zj.zidanlist.erase(k);
-					zidanboomlist.push_back(zidanboom(tmpx, tmpy, pos));
-					flag = true;
-					(*i).life -= zidanshanghai;
-					if ((*i).life <= 0)
-					{
-						addDiePerson((*i).x, (*i).y);
-						rsldlist.erase(i);
-					}
-					break;
-				}
-			}
-			if (tmpx < 0)
-			{
-				zj.zidanlist.erase(k);
-			}
-		}
-	}
-	for (auto k = myfj.fjdlist.begin(); k != myfj.fjdlist.end(); k++)
-	{
-		int tmpx = (*k).x;
-		int tmpy = (*k).y;
-
-		bool flag = false;
-		for (auto i = qiangshoulist.begin(); i != qiangshoulist.end() && flag == false; i++)
-		{
-			if ((tmpx > (*i).x - range_x && tmpx < (*i).x + range_x) && (tmpy > (*i).y - range_y && tmpy < (*i).y + range_y))
-			{
-
-				(*i).life -= feijidanshanghai;
-				if ((*i).life <= 0)
-				{
-					addDiePerson((*i).x, (*i).y);
-					qiangshoulist.erase(i);
-				}
-				break;
-			}
-		}
-
-		for (auto i = ldps.begin(); i != ldps.end() && flag == false; i++)
-		{
-			if ((tmpx > (*i).x - range_x && tmpx < (*i).x + range_x) && (tmpy > (*i).y - range_y && tmpy < (*i).y + range_y))
-			{
-
-				(*i).life -= feijidanshanghai;
-				if ((*i).life <= 0)
-				{
-					addDiePerson((*i).x, (*i).y);
-					ldps.erase(i);
-				}
-				break;
-			}
-		}
-
-		for (auto i = fjlist.begin(); i != fjlist.end() && flag == false; i++)
-		{
-			if ((tmpx > (*i).x - range_x && tmpx < (*i).x + range_x) && (tmpy > (*i).y - range_y && tmpy < (*i).y + range_y))
-			{
-
-				(*i).life -= feijidanshanghai;
-				if ((*i).life <= 0)
-				{
-					fjlist.erase(i);
-				}
-				break;
-			}
-		}
-
-		for (auto i = dslist.begin(); i != dslist.end() && flag == false; i++)
-		{
-			if ((tmpx > (*i).x - range_x && tmpx < (*i).x + range_x) && (tmpy > (*i).y - range_y && tmpy < (*i).y + range_y))
-			{
-
-				(*i).life -= feijidanshanghai;
-				if ((*i).life <= 0)
-				{
-					addDiePerson((*i).x, (*i).y);
-					dslist.erase(i);
-				}
-				break;
-			}
-		}
-
-		for (auto i = rsldlist.begin(); i != rsldlist.end() && flag == false; i++)
-		{
-			if ((tmpx > (*i).x - range_x && tmpx < (*i).x + range_x) && (tmpy > (*i).y - range_y && tmpy < (*i).y + range_y))
-			{
-
-				(*i).life -= feijidanshanghai;
-				if ((*i).life <= 0)
-				{
-					addDiePerson((*i).x, (*i).y);
-					rsldlist.erase(i);
-				}
-				break;
-			}
-		}
-	}
-	// check xiaobingzidan
-	for (auto i = qiangshoulist.begin(); i != qiangshoulist.end(); i++)
-	{
-		for (auto j = (*i).drzdlist.begin(); j != (*i).drzdlist.end(); j++)
-		{
-			if (checkZhangAiWu((*j).x, (*j).y, direnzidanshanghai) == false)
-			{
-				if ((*j).x > zj.x - range_x && (*j).x < zj.x + range_x && (*j).y > zj.y - range_y && (*j).y < zj.y + range_y)
-				{
-					(*i).drzdlist.erase(j);
-					zj.life -= direnzidanshanghai;
-				}
-			}
-			else
-			{
-				(*i).drzdlist.erase(j);
-			}
-		}
-	}
-
-	for (auto i = ldps.begin(); i != ldps.end(); i++)
-	{
-		for (auto j = (*i).drzdlist.begin(); j != (*i).drzdlist.end(); j++)
-		{
-			if (checkZhangAiWu((*j).x, (*j).y, direnliudanshanghai) == false)
-			{
-				if ((*j).x > zj.x - range_x && (*j).x < zj.x + range_x && (*j).y > zj.y - range_y && (*j).y < zj.y + range_y)
-				{
-					(*i).drzdlist.erase(j);
-					zj.life -= direnliudanshanghai;
-				}
-			}
-			else
-			{
-				(*i).drzdlist.erase(j);
-			}
-		}
-	}
-
-	for (auto i = fjlist.begin(); i != fjlist.end(); i++)
-	{
-		for (auto j = (*i).fjdlist.begin(); j != (*i).fjdlist.end(); j++)
-		{
-			if ((*j).x > zj.x - range_x && (*j).x < zj.x + range_x && (*j).y > zj.y - range_y && (*j).y < zj.y + range_y)
-			{
-				feijidanboomlist.push_back(feijidanboom((*j).x, (*j).y));
-				(*i).fjdlist.erase(j);
-				zj.life -= feijidanshanghai;
-			}
-		}
-	}
-	for (auto i = dslist.begin(); i != dslist.end(); i++)
-	{
-		if ((*i).x > zj.x - range_x && (*i).x < zj.x + range_x && (*i).y > zj.y - range_y && (*i).y < zj.y + range_y)
-		{
-			if (daoshouTime <= 0)
-			{
-				zj.life -= daoshanghai;
-				daoshouTime = DAOSHOUTIME;
-			}
-			else
-			{
-				daoshouTime--;
-			}
-		}
-	}
-
-	for (auto i = rsldlist.begin(); i != rsldlist.end(); i++)
-	{
-		for (auto j = (*i).sldlist.begin(); j != (*i).sldlist.end(); j++)
-		{
-			if (checkZhangAiWu((*j).x, (*j).y, shouliudanshanghai) == false)
-			{
-				if ((*j).x > zj.x - range_x && (*j).x < zj.x + range_x && (*j).y > zj.y - range_y && (*j).y < zj.y + range_y)
-				{
-					(*i).sldlist.erase(j);
-					zj.life -= shouliudanshanghai;
-				}
-				else
-				{
-					(*i).sldlist.erase(j);
-				}
-			}
-		}
-	}
-}
-void bosscheck()
-{
-	if (isAllDied() && bossstandlist.size() > 0 && (bossstandlist.begin()->time) < 3)
-	{
-		int my_t = bossstandlist.begin()->time;
-		my_t++;
-		int mylife = bossstandlist.begin()->life;
-		// bossangerlist.push_back(bossAnger(bs.x, bs.y, bs.time, bs.life));
-		bossangerlist.push_back(bossAnger(my_t, mylife));
-		bossstandlist.clear();
-	}
-	if (isAllDied() && bossstandlist.size() > 0 && (bossstandlist.begin()->time) >= 3)
-	{
-		isbossdied = true;
-		bossdielist.push_back(bossdie());
-		bossstandlist.clear();
-	}
-	if (isAllDied() && bossangerlist.size() > 0 && bossangerlist.begin()->imgnum >= bossAngerNum * bosstimes)
-	{
-
-		if ((bossangerlist.begin()->time) == 1)
-		{
-			isBossShowed = true;
-			isRenzhiShowed = true;
-			list<bossAnger>::iterator bsag = bossangerlist.begin();
-			// bossstandlist.push_back(bossstand(bsag.x,bsag.y, bsag.time, bsag.life));
-			int xx = bsag->x;
-			int yy = bsag->y;
-			int tt = bsag->time;
-			int ll = bsag->life;
-			bosslist.push_back(boss(xx, yy, tt, ll));
-			if (bsag->time == 1)
-			{
-				round1();
-			}
-			else if (bsag->time == 2)
-			{
-				round2();
-			}
-			else if (bsag->time == 3)
-			{
-				round3();
-			}
-			bossangerlist.clear();
-		}
-		else if ((bossangerlist.begin()->time) == 2)
-		{
-			if (roundnum == 0)
-			{
-				if (truepos < (bk1_Width * HEIGHT / bk1_Height) * 0.4)
-				{
-					canIGoRight = true;
-					isBossShowed = false;
-					isRenzhiShowed = false;
-				}
-				else
-				{
-					canIGoRight = false;
-					isBossShowed = true;
-					isRenzhiShowed = true;
-					list<bossAnger>::iterator bsag = bossangerlist.begin();
-					// bossstandlist.push_back(bossstand(bsag.x,bsag.y, bsag.time, bsag.life));
-					int xx = bsag->x;
-					int yy = bsag->y;
-					int tt = bsag->time;
-					int ll = bsag->life;
-					bosslist.push_back(boss(xx, yy, tt, ll));
-					if (bsag->time == 1)
-					{
-						round1();
-					}
-					else if (bsag->time == 2)
-					{
-						round2();
-					}
-					else if (bsag->time == 3)
-					{
-						round3();
-					}
-					bossangerlist.clear();
-				}
-			}
-			else if (roundnum == 1)
-			{
-				if (truepos < (bk2_Width * HEIGHT / bk2_Height) * 0.4)
-				{
-					canIGoRight = true;
-					isBossShowed = false;
-					isRenzhiShowed = false;
-				}
-				else
-				{
-					canIGoRight = false;
-					isBossShowed = true;
-					isRenzhiShowed = true;
-					list<bossAnger>::iterator bsag = bossangerlist.begin();
-					// bossstandlist.push_back(bossstand(bsag.x,bsag.y, bsag.time, bsag.life));
-					int xx = bsag->x;
-					int yy = bsag->y;
-					int tt = bsag->time;
-					int ll = bsag->life;
-					bosslist.push_back(boss(xx, yy, tt, ll));
-					if (bsag->time == 1)
-					{
-						round1();
-					}
-					else if (bsag->time == 2)
-					{
-						round2();
-					}
-					else if (bsag->time == 3)
-					{
-						round3();
-					}
-					bossangerlist.clear();
-				}
-			}
-			else
-			{
-				if (truepos < (bk3_Width * HEIGHT / bk3_Height) * 0.4)
-				{
-					canIGoRight = true;
-					isBossShowed = false;
-					isRenzhiShowed = false;
-				}
-				else
-				{
-					canIGoRight = false;
-					isBossShowed = true;
-					isRenzhiShowed = true;
-					list<bossAnger>::iterator bsag = bossangerlist.begin();
-					// bossstandlist.push_back(bossstand(bsag.x,bsag.y, bsag.time, bsag.life));
-					int xx = bsag->x;
-					int yy = bsag->y;
-					int tt = bsag->time;
-					int ll = bsag->life;
-					bosslist.push_back(boss(xx, yy, tt, ll));
-					if (bsag->time == 1)
-					{
-						round1();
-					}
-					else if (bsag->time == 2)
-					{
-						round2();
-					}
-					else if (bsag->time == 3)
-					{
-						round3();
-					}
-					bossangerlist.clear();
-				}
-			}
-		}
-		else if ((bossangerlist.begin()->time) == 3)
-		{
-			if (roundnum == 0)
-			{
-				if (truepos < (bk1_Width * HEIGHT / bk1_Height) * 0.6)
-				{
-					isBossShowed = false;
-					isRenzhiShowed = false;
-					canIGoRight = true;
-				}
-				else
-				{
-					canIGoRight = false;
-					isBossShowed = true;
-					isRenzhiShowed = true;
-					list<bossAnger>::iterator bsag = bossangerlist.begin();
-					// bossstandlist.push_back(bossstand(bsag.x,bsag.y, bsag.time, bsag.life));
-					int xx = bsag->x;
-					int yy = bsag->y;
-					int tt = bsag->time;
-					int ll = bsag->life;
-					bosslist.push_back(boss(xx, yy, tt, ll));
-					if (bsag->time == 1)
-					{
-						round1();
-					}
-					else if (bsag->time == 2)
-					{
-						round2();
-					}
-					else if (bsag->time == 3)
-					{
-						round3();
-					}
-					bossangerlist.clear();
-				}
-			}
-			else if (roundnum == 1)
-			{
-				if (truepos < (bk2_Width * HEIGHT / bk2_Height) * 0.6)
-				{
-					isBossShowed = false;
-					isRenzhiShowed = false;
-					canIGoRight = true;
-				}
-				else
-				{
-					canIGoRight = false;
-					isBossShowed = true;
-					isRenzhiShowed = true;
-					list<bossAnger>::iterator bsag = bossangerlist.begin();
-					// bossstandlist.push_back(bossstand(bsag.x,bsag.y, bsag.time, bsag.life));
-					int xx = bsag->x;
-					int yy = bsag->y;
-					int tt = bsag->time;
-					int ll = bsag->life;
-					bosslist.push_back(boss(xx, yy, tt, ll));
-					if (bsag->time == 1)
-					{
-						round1();
-					}
-					else if (bsag->time == 2)
-					{
-						round2();
-					}
-					else if (bsag->time == 3)
-					{
-						round3();
-					}
-					bossangerlist.clear();
-				}
-			}
-			else
-			{
-				if (truepos < (bk3_Width * HEIGHT / bk3_Height) * 0.6)
-				{
-					isBossShowed = false;
-					isRenzhiShowed = false;
-					canIGoRight = true;
-				}
-				else
-				{
-					canIGoRight = false;
-					isBossShowed = true;
-					isRenzhiShowed = true;
-					list<bossAnger>::iterator bsag = bossangerlist.begin();
-					// bossstandlist.push_back(bossstand(bsag.x,bsag.y, bsag.time, bsag.life));
-					int xx = bsag->x;
-					int yy = bsag->y;
-					int tt = bsag->time;
-					int ll = bsag->life;
-					bosslist.push_back(boss(xx, yy, tt, ll));
-					if (bsag->time == 1)
-					{
-						round1();
-					}
-					else if (bsag->time == 2)
-					{
-						round2();
-					}
-					else if (bsag->time == 3)
-					{
-						round3();
-					}
-					bossangerlist.clear();
-				}
-			}
-		}
-	}
-	if (bosslist.size() > 0 && bosslist.begin()->imgnum >= bossNum * bosstimes)
-	{
-		list<boss>::iterator bsag = (bosslist.begin());
-		int xx = bsag->x;
-		int yy = bsag->y;
-		int tt = bsag->time;
-		int ll = bsag->life;
-		bossstandlist.push_back(bossstand(xx, yy, tt, ll));
-		bosslist.clear();
-	}
-}
-void checkLetterE()
-{
-	if (canIhaveFeiji == true && zj.x > myfj.x - range_x && zj.x < myfj.x + range_x && is_feiji == false)
-	{
-		E.isshow();
-		E.change(myfj.x);
-	}
-	else if (zj.x > oldmanbanglist.begin()->x - range_x && zj.x < oldmanbanglist.begin()->x + range_x && isAllDied() && isbossdied == true)
-	{
-		E.isshow();
-		E.change(oldmanbanglist.begin()->x);
-	}
-	else
-	{
-		E.isnotshow();
-	}
-}
-bool canIgoRight()
-{
-	if (canIGoRight && isAllDied() && bossangerlist.size() > 0 && (bossangerlist.begin()->time) == 2 && zj.x > 0.6 * WIDTH)
-	{
-		if (roundnum == 0 && truepos < bk1_Width * HEIGHT / bk1_Height * 0.4)
-		{
-			return true;
-		}
-		else if (roundnum == 1 && truepos < bk2_Width * HEIGHT / bk2_Height * 0.4)
-		{
-			return true;
-		}
-		else if (roundnum == 2 && truepos < bk3_Width * HEIGHT / bk3_Height * 0.4)
-		{
-			return true;
-		}
-		else
-		{
-			canIGoRight = false;
-			return false;
-		}
-	}
-	else if (canIGoRight && isAllDied() && bossangerlist.size() > 0 && (bossangerlist.begin()->time) == 3 && zj.x > 0.6 * WIDTH)
-	{
-		if (roundnum == 0 && truepos < bk1_Width * HEIGHT / bk1_Height * 0.6)
-		{
-			return true;
-		}
-		else if (roundnum == 1 && truepos < bk2_Width * HEIGHT / bk2_Height * 0.6)
-		{
-			return true;
-		}
-		else if (roundnum == 2 && truepos < bk3_Width * HEIGHT / bk3_Height * 0.6)
-		{
-			return true;
-		}
-		else
-		{
-			canIGoRight = false;
-			return false;
-		}
-	}
-	else
-	{
-		return false;
-	}
-}
-void goRight()
-{
-	bkgroundTruePos -= v;
-	truepos += v;
-	for (auto i = tongList.begin(); i != tongList.end(); i++)
-	{
-		(*i).x -= v;
-		if ((*i).x < 0)
-		{
-			tongList.erase(i);
-		}
-	}
-	for (auto i = shadailist.begin(); i != shadailist.end(); i++)
-	{
-		(*i).x -= v;
-		if ((*i).x < 0)
-		{
-			shadailist.erase(i);
-		}
-	}
-	if (is_feiji == false && canIhaveFeiji == true)
-	{
-		myfj.x -= v;
-	}
-}
-void IsPressKey()
-{
-	if (_kbhit()) //	If a key is pressed
-	{
-		char key;
-		key = _getch(); //	Obtain key info
-		if (is_feiji == false)
-		{
-
-			if (GetAsyncKeyState('W'))
-			{
-				if (zj.y >= groundy)
-				{
-					zj.vy = -jump_v;
-					zj.changexy(zj.x, zj.y);
-					int tmppos = zj.pos;
-					// pos: 0 is left, 1 is right, 2 is left jump,  3 is right jump, 4 is left down, 5 is right down, 6 is left stand, 7 is right stand
-					if (tmppos == 0 || tmppos == 2 || tmppos == 4 || tmppos == 6)
-					{
-						zj.pos = 2;
-					}
-					else
-					{
-						zj.pos = 3;
-					}
-				}
-			}
-			if (GetAsyncKeyState('S'))
-			{
-				zj.changexy(zj.x, groundy + 30);
-				int tmppos = zj.pos;
-				// pos: 0 is left, 1 is right, 2 is left jump,  3 is right jump, 4 is left down, 5 is right down, 6 is left stand, 7 is right stand
-				if (tmppos == 0 || tmppos == 2 || tmppos == 4 || tmppos == 6)
-				{
-					zj.pos = 4;
-				}
-				else
-				{
-					zj.pos = 5;
-				}
-			}
-
-			if (GetAsyncKeyState('A') && zj.x > v)
-			{
-				if (checkIsDangZhu(zj.x, zj.y, 0) == false)
-				{
-					zj.changexy(zj.x - v, zj.y);
-					truepos -= v;
-				}
-				// pos: 0 is left, 1 is right, 2 is left jump,  3 is right jump, 4 is left down, 5 is right down, 6 is left stand, 7 is right stand
-				zj.pos = 0;
-			}
-			if (GetAsyncKeyState('D') && zj.x < WIDTH - range_x)
-			{
-				// goRight();
-				if (checkIsDangZhu(zj.x, zj.y, 1) == false)
-				{
-
-					if (canIgoRight() == false)
-					{
-						zj.changexy(zj.x + v, zj.y);
-						truepos += v;
-					}
-					else
-					{
-						goRight();
-					}
-				}
-				// pos: 0 is left, 1 is right, 2 is left jump,  3 is right jump, 4 is left down, 5 is right down, 6 is left stand, 7 is right stand
-				zj.pos = 1;
-			}
-			if (GetAsyncKeyState('1'))
-			{
-				// pos: 0 is left, 1 is right, 2 is left jump,  3 is right jump, 4 is left down, 5 is right down, 6 is left stand, 7 is right stand
-				zj.wq = 0;
-			}
-			if (GetAsyncKeyState('2'))
-			{
-				// pos: 0 is left, 1 is right, 2 is left jump,  3 is right jump, 4 is left down, 5 is right down, 6 is left stand, 7 is right stand
-				zj.wq = 1;
-			}
-			if (GetAsyncKeyState('E') && zj.x > oldmanbanglist.begin()->x - range_x && zj.x < oldmanbanglist.begin()->x + range_x && isAllDied() && isbossdied == true)
-			{
-				oldmanfreelist.push_back(oldmanfree());
-				oldmanbanglist.clear();
-				if (changeFlag == false)
-				{
-					roundnum++;
-					changeFlag = true;
-				}
-			}
-			if (canIhaveFeiji == true && GetAsyncKeyState('E') && zj.x > myfj.x - range_x && zj.x < myfj.x + range_x)
-			{
-				is_feiji = true;
-			}
-		}
-		else
-		{
-			if (GetAsyncKeyState('W'))
-			{
-				zj.y = zj.y - myfeiji_vy;
-				myfj.y -= myfeiji_vy;
-			}
-			if (GetAsyncKeyState('S'))
-			{
-				zj.y = zj.y + myfeiji_vy;
-				myfj.y += myfeiji_vy;
-			}
-			if (GetAsyncKeyState('A'))
-			{
-				zj.x = zj.x - myfeiji_vx;
-				myfj.x -= myfeiji_vx;
-				myfj.pos = 1;
-				zj.pos = 0;
-			}
-			if (GetAsyncKeyState('D'))
-			{
-				if (canIgoRight() == false)
-				{
-					zj.x = zj.x + myfeiji_vx;
-					myfj.x += myfeiji_vx;
-				}
-				else
-				{
-					goRight();
-				}
-				myfj.pos = 0;
-				zj.pos = 1;
-			}
-			if (GetAsyncKeyState('1'))
-			{
-				// pos: 0 is left, 1 is right, 2 is left jump,  3 is right jump, 4 is left down, 5 is right down, 6 is left stand, 7 is right stand
-				zj.wq = 0;
-			}
-			if (GetAsyncKeyState('2'))
-			{
-				// pos: 0 is left, 1 is right, 2 is left jump,  3 is right jump, 4 is left down, 5 is right down, 6 is left stand, 7 is right stand
-				zj.wq = 1;
-			}
-			if (GetAsyncKeyState('E'))
-			{
-				is_feiji = false;
-				myfj.y = groundy;
-				zj.y = groundy;
-			}
-			if (GetAsyncKeyState(' '))
-			{
-				myfj.fjdlist.push_back(feijidan(myfj.x, myfj.y));
-			}
-		}
-	}
-	MOUSEMSG m;		   // 定义鼠标消息
-	while (MouseHit()) // 检测当前是否有鼠标消息
-	{
-		m = GetMouseMsg();
-		auto theta = atan2(m.y - zj.y - 20, m.x - zj.x + 10);
-		if (zj.pos == 0)
-		{
-			zidan_vx = int(zidan_v * cos(-theta));
-			zidan_vy = int(zidan_v * sin(theta));
-		}
-		else
-		{
-			zidan_vx = int(zidan_v * cos(-theta));
-			zidan_vy = int(zidan_v * sin(theta));
-		}
-	}
-	if (GetAsyncKeyState(VK_LBUTTON))
-	{
-		// m = GetMouseMsg();
-		zj.shot = 1;
-		int x = zj.pos % 2 == 0 ? 0 : 1;
-		// auto theta = atan2(m.y - zj.y - 20, m.x - zj.x + 10);
-		// zidan_vx = int(zidan_v * sin(theta));
-		// zidan_vy = int(zidan_v * cos(theta));
-		if (zj.wq == 0)
-		{
-			if (x == 0)
-			{
-				zj.zidanlist.push_back(Zidan(zj.x - 10, zj.y + 20, 0, -zidan_vx, zidan_vy));
-				if (-zidan_vx < 0)
-				{
-					zj.pos += 1;
-					if (is_feiji)
-					{
-						myfj.pos += 1;
-					}
-				}
-			}
-			else
-			{
-				zj.zidanlist.push_back(Zidan(zj.x + 10, zj.y + 20, 1, zidan_vx, zidan_vy));
-				if (zidan_vx < 0)
-				{
-					zj.pos -= 1;
-					if (is_feiji)
-					{
-						myfj.pos -= 1;
-					}
-				}
-			}
-		}
-		else
-		{
-			if (x == 0)
-			{
-				zj.dazidanlist.push_back(DaZidan(zj.x - 10, zj.y + 20, 0, -zidan_vx, zidan_vy));
-				if (-zidan_vx < 0)
-				{
-					zj.pos += 1;
-					if (is_feiji)
-					{
-						myfj.pos += 1;
-					}
-				}
-			}
-			else
-			{
-				zj.dazidanlist.push_back(DaZidan(zj.x + 10, zj.y + 20, 1, zidan_vx, zidan_vy));
-				if (zidan_vx < 0)
-				{
-					zj.pos -= 1;
-					if (is_feiji)
-					{
-						myfj.pos -= 1;
-					}
-				}
-			}
-		}
-	}
-}
-void refreshAllNum()
-{
-	bossstandlist.begin()->time = 0;
-	roundtruekillnum = 0;
-	isBossShowed = false;
-	isRenzhiShowed = false;
-	bossstandlist.clear();
-	bossstandlist.push_back(bossstand());
-	bossangerlist.clear();
-	bossdielist.clear();
-	bosslist.clear();
-	finshedtime = 0;
-	changeFlag = false;
-	Bosscxg = false;
-	oldmanfreelist.clear();
-	oldmanbanglist.push_back(oldmanbang());
-	canIGoRight = false;
-	bkgroundTruePos = 0;
-	checkflag = false;
-	truepos = 0;
-	zj.x = myfj.x;
-	//canIhaveFeiji=true;
-	if (roundnum == 1)
-	{
-		is_feiji = true;
-		canIhaveFeiji = true;
-	}
-	if (roundnum == 2)
-	{
-		is_feiji = false;
-		canIhaveFeiji = true;
-	}
-}
-void xiaobingCheck()
-{
-	if (isAllDied() && true)
-	{
-		roundtruekillnum++;
-		if (roundtruekillnum >= roundkillnum && checkflag == false)
-		{
-			Bosscxg = true;
-			isBossShowed = true;
-			checkflag = true;
-			isRenzhiShowed = true;
-		}
-		int tmp = rand() % 4;
-		if (tmp == 0)
-		{
-			adddaoshou(rand() % 3);
-		}
-		else if (tmp == 1)
-		{
-			addqiangshou(rand() % 3);
-		}
-		else if (tmp == 2)
-		{
-			addldps(rand() % 3);
-		}
-		else if (tmp == 3)
-		{
-			addrsld(rand() % 3);
-		}
-	}
-	else if (isAllDied() && false)
-	{
-		roundtruekillnum++;
-		if (roundtruekillnum >= roundkillnum && checkflag == false)
-		{
-			Bosscxg = true;
-			checkflag = true;
-			isBossShowed = true;
-			isRenzhiShowed = true;
-		}
-		int tmp = rand() % 5;
-		if (tmp == 0)
-		{
-			adddaoshou(rand() % 3);
-		}
-		else if (tmp == 1)
-		{
-			addqiangshou(rand() % 3);
-		}
-		else if (tmp == 2)
-		{
-			addldps(rand() % 3);
-		}
-		else if (tmp == 3)
-		{
-			addrsld(rand() % 3);
-		}
-		else if (tmp == 4)
-		{
-			addfeiji(rand() % 2);
-		}
-	}
+    va_list ap;
+    va_start(ap, fmt);
+#ifdef UNICODE
+    swprintf_s(buf, cap, fmt, ap);
+#else
+    sprintf_s(buf, cap, fmt, ap);
+#endif
+    va_end(ap);
 }
 
+// ============================================================================
+//  1. 配置（数值平衡集中在这里，方便调参）
+// ============================================================================
+
+namespace Cfg
+{
+    const int   LOGIC_HZ      = 60;     // 逻辑帧率
+    const float DT           = 1.0f / 60.0f;
+    const int   ANIM_DIV     = 6;      // 动画时钟 = 60 / 6 = 10 帧/秒，与原版一致
+
+    // ---- 主角 ----
+    const float PLAYER_SPEED      = 240.f;
+    const float PLAYER_JUMP_V     = 300.f;
+    const float PLAYER_GRAVITY    = 300.f;
+    const int   PLAYER_MAX_HP     = 100;
+    const int   PLAYER_INVULN     = 45;    // 受击后无敌帧
+    const int   PLAYER_RIFLE_CD   = 8;     // 步枪冷却（tick）
+    const int   PLAYER_CANNON_CD  = 22;    // 炮台冷却（tick）
+    const int   RIFLE_DAMAGE      = 1;
+    const int   CANNON_DAMAGE     = 5;
+    const float RIFLE_SPEED       = 560.f;
+    const float CANNON_SPEED      = 480.f;
+    const int   CANNON_AMMO_MAX   = 60;
+    const int   FOOT_OVERLAP      = 7;     // 身体与脚部贴图的重叠量
+    const int   MUZZLE_FRAMES     = 5;     // 开火时切换成"重武器"贴图的时长
+
+    // 固定碰撞基准：主角的受击盒必须恒定，不能从「会随开火/换枪变化的贴图」推导，
+    // 否则开火瞬间主角的受击盒会突变（详见 README 缺陷表 B2）。
+    const int   PLAYER_HIT_W      = 62;    // 躯干碰撞宽（= 步枪身体贴图宽）
+    const int   PLAYER_HIT_H      = 56;    // 躯干碰撞高（= 步枪身体贴图高）
+    const float PLAYER_HIT_LR     = 0.16f; // 左右收缩比例
+    const float PLAYER_HIT_TR     = 0.12f; // 上收缩比例
+
+    // ---- 敌人 ----
+    const float ENEMY_AGGRO_RANGE = 620.f; // 超出这个距离不开火
+    const float ENEMY_KNIFE_STOP  = 30.f;  // 刀兵贴到这个距离就停下突刺
+    const float ENEMY_KNIFE_RANGE = 85.f;  // 刀兵命中判定范围（要容得下 16px 击退）
+    const int   ENEMY_KNIFE_CD    = 50;    // 刀兵攻击冷却
+    const int   ENEMY_BOMB_CD     = 110;   // 敌机投弹间隔
+
+    // ---- 关卡 ----
+    const int   BOSS_WAVE_INTERVAL = 12;   // 无尽模式：每 12 波一场 Boss
+
+    // ---- 道具 ----
+    const int   BARREL_HP         = 12;    // 油桶血量（步枪约 12 发、炮台 3 发打爆）
+
+    // ---- 关卡 ----
+    const int   WAVE_INTERVAL_TICK = 70;   // 每波间隔
+}
+
+// ============================================================================
+//  2. 确定性随机数（原版在渲染里调 rand()，会让人物每帧乱跳）
+// ============================================================================
+
+struct Rng
+{
+    unsigned int s;
+
+    void seed(unsigned int v) { s = v ? v : 0x9E3779B9u; }
+
+    unsigned int next()
+    {
+        s ^= s << 13; s ^= s >> 17; s ^= s << 5;
+        return s;
+    }
+    int range(int lo, int hi)              // 闭区间
+    {
+        if (hi <= lo) return lo;
+        return lo + (int)(next() % (unsigned int)(hi - lo + 1));
+    }
+    float unit() { return (float)(next() & 0xFFFFFF) / (float)0x1000000; }
+};
+
+// ============================================================================
+//  3. 输入（边缘触发 + 持续按住，彻底修掉 _kbhit() 吞键的问题）
+// ============================================================================
+
+struct Input
+{
+    bool cur[256];
+    bool prev[256];
+
+    void update()
+    {
+        // 只轮询游戏真正用到的按键
+        static const int kTracked[] = {
+            VK_LEFT, VK_RIGHT, VK_UP, VK_DOWN, VK_SPACE, VK_RETURN, VK_ESCAPE,
+            VK_LBUTTON, VK_1, VK_2, 'A', 'D', 'W', 'S', 'E'
+        };
+        for (int i = 0; i < 256; ++i)
+            prev[i] = cur[i];
+        for (size_t k = 0; k < sizeof(kTracked) / sizeof(kTracked[0]); ++k)
+            cur[kTracked[k]] = (GetAsyncKeyState(kTracked[k]) & 0x8000) != 0;
+    }
+    bool held(int vk)  const { return cur[vk & 0xFF]; }
+    bool pressed(int vk) const { return cur[vk & 0xFF] && !prev[vk & 0xFF]; }
+    void reset() { memset(cur, 0, sizeof(cur)); memset(prev, 0, sizeof(prev)); }
+};
+
+// ============================================================================
+//  4. 资源表（只读全局，唯一保留的全局对象）
+// ============================================================================
+
+enum EnemyKind { EK_RIFLEMAN = 0, EK_KNIFE, EK_ROCKET, EK_THROWER, EK_PLANE, EK_COUNT };
+enum BodyTier  { BT_NORMAL = 0, BT_HEAVY = 1 };
+enum WeaponId  { WP_RIFLE = 0, WP_CANNON = 1 };
+enum StanceId  { ST_STAND = 0, ST_RUN, ST_JUMP, ST_DOWN, ST_COUNT };
+
+struct Assets
+{
+    IMAGE bg[4];                       // 4 张背景（3 关 + 无尽）
+
+    IMAGE playerBody[2][2][4];         // [层级][武器][帧]
+    int   playerBodyCount[2][2];
+    IMAGE playerFoot[ST_COUNT][9];     // [姿态][帧]
+    int   playerFootCount[ST_COUNT];
+
+    IMAGE enemy[EK_COUNT][9];
+    int   enemyCount[EK_COUNT];
+
+    IMAGE deathA[5];                   // 士兵死亡动画 A
+    IMAGE deathB[8];                   // 士兵死亡动画 B
+    IMAGE bombBoom[8];                 // 炸弹爆炸动画
+    IMAGE bossAttack[10];
+    IMAGE bossAnger[2];
+    IMAGE bossStand[4];
+    IMAGE bossDie[5];
+    IMAGE oldManBound[3];
+    IMAGE oldManFree[4];
+
+    IMAGE planePlayer;
+    IMAGE bulletPlayer, bulletHeavy, bulletEnemyRifle, bulletEnemyRocket;
+    IMAGE bulletGrenade, planeBomb, impact, letterE;
+
+    IMAGE barrel, barrelBroken, sandbag;
+    IMAGE win, fail;
+    IMAGE splash;
+    IMAGE menu, modeNormal, modeEndless, select;
+    IMAGE roundBadge[3];
+};
+
+static Assets g_assets;
+
+// 背景原始尺寸（用于按屏幕高度等比缩放）
+static const int kBgNativeW[4] = { 8800, 1910, 1298, 624 };
+static const int kBgNativeH[4] = { 1080, 224,  222,  219 };
+
+// ============================================================================
+//  5. 实体
+// ============================================================================
+
+enum BulletKind { BLK_RIFLE = 0, BLK_CANNON, BLK_ENEMY_RIFLE, BLK_ENEMY_ROCKET, BLK_GRENADE, BLK_BOMB, BLK_ENEMY_BOMB };
+
+struct Bullet
+{
+    bool       alive;
+    BulletKind kind;
+    float      x, y;
+    float      vx, vy;
+    float      gravity;      // 加速度 px/s^2
+    int        damage;
+    bool       fromPlayer;
+    int        age;
+    int        maxAge;
+};
+
+struct Enemy
+{
+    EnemyKind kind;
+    bool      alive;
+    float     x, y;
+    float     vx;
+    int       hp, maxHp;
+    bool      faceRight;
+    int       anim;
+    int       fireTimer;
+    int       atkTicks;
+    bool      atkHit;      // 本次攻击是否已结算伤害
+    int       flash;
+    int       muzzle;
+    int       hurtCd;
+};
+
+struct Obstacle
+{
+    bool  alive;
+    float x, y;
+    int   hp, maxHp;
+    bool  destructible;
+    int   flash;
+};
+
+struct Particle
+{
+    bool  alive;
+    float x, y, vx, vy;
+    float life, maxLife;
+    float size;
+    float gravity;
+    DWORD color;
+};
+
+struct FxAnim
+{
+    bool  alive;
+    float x, y;
+    int   set;      // 0 = deathA, 1 = deathB, 2 = bombBoom
+    int   frame;
+    bool  flip;
+};
+
+struct Player
+{
+    float x, y;                 // 世界坐标，(x,y) 为身体贴图左上角
+    float vy;
+    int   hp;
+    bool  faceRight;
+    int   stance;
+    int   weapon;
+    int   cannonAmmo;
+    int   fireCooldown;
+    int   invuln;
+    int   muzzleFlash;
+    bool  inPlane;
+};
+
+struct Plane
+{
+    float x, y;
+    bool  available;
+    bool  carried;              // 玩家正坐在机上
+};
+
+enum BossState { BSS_NONE = 0, BSS_ENTER, BSS_IDLE, BSS_ATTACK, BSS_DIE, BSS_DEAD };
+
+struct Boss
+{
+    BossState state;
+    float x, y;
+    int   hp, maxHp;
+    int   anim;
+    int   atkTicks;
+    int   cool;
+    int   flash;
+    bool  angry;
+};
+
+struct OldMan
+{
+    bool  active;
+    bool  freed;
+    float x, y;
+    int   anim;
+};
+
+struct Toast
+{
+    bool  active;
+    TCHAR text[48];
+    float life;
+};
+
+// ============================================================================
+//  6. 敌人配置表
+// ============================================================================
+
+struct EnemySpec
+{
+    int   hp;
+    float speed;
+    float stopRange;       // 靠近到这个距离就停下（枪兵停下开火，刀兵要贴脸）
+    int   fireInterval;     // tick，0 表示不开火
+    int   damage;
+    int   score;
+    int   idleFrames;       // 待机动画帧数
+    int   atkStart;         // 攻击动画起始帧
+    int   atkFrames;        // 攻击动画帧数
+    int   atkTicks;         // 攻击动画时长
+    bool  artFacesRight;    // 素材本身是否朝右
+    bool  isPlane;
+};
+
+static const EnemySpec kEnemySpec[EK_COUNT] =
+{
+    // hp  speed  stop  fire  dmg score idle atkStart atkFrames atkTicks artRight isPlane
+    {   3,  55.f, 300.f,  85,   1,  100,  4,   4,   3,   12,  true,  false },  // 步枪兵
+    {   2, 105.f,  30.f,   0,   2,  120,  5,   5,   2,   14,  true,  false },  // 刀兵
+    {   4,  45.f, 300.f, 130,   3,  160,  2,   2,   3,   16,  true,  false },  // 火箭兵
+    {   3,  60.f, 300.f, 120,   1,  140,  5,   5,   4,   16,  true,  false },  // 手雷兵
+    {   6, 130.f,   0.f,   0,   0,  200,  1,   0,   0,    0,  false, true  },  // 敌机
+};
+
+// ============================================================================
+//  7. 游戏主体
+// ============================================================================
+
+enum Phase { PH_SPLASH = 0, PH_MENU, PH_ROUND_SEL, PH_PLAY, PH_CLEAR, PH_WIN, PH_OVER };
+
+struct LevelConfig
+{
+    int   background;
+    int   enemyHpBonus;
+    int   maxAlive;
+    int   waveInterval;
+    bool  hasBoss;
+    bool  hasPlane;
+    int   obstacleCount;      // 场上障碍数量（第一关为 0，与原版一致）
+    int   weight[EK_COUNT];   // 随机波的敌人权重
+    int   opening[EK_COUNT];  // 开局固定编队
+};
+
+static const LevelConfig kLevel[3] =
+{
+    //            bg hp alive wave boss plane obst   权重[步枪 刀 火箭 手雷 敌机]      开局编队
+    { 0, 0, 6, 80, true, false, 0, { 5, 3, 2, 1, 0 }, { 1, 1, 1, 0, 0 } },
+    { 1, 1, 8, 70, true, true,  5, { 3, 2, 3, 4, 2 }, { 1, 0, 1, 2, 1 } },
+    { 2, 2, 9, 62, true, true,  6, { 4, 3, 3, 3, 4 }, { 1, 1, 1, 1, 2 } },
+};
+
+// 无尽模式：敌人构成与关卡无关，各类型均衡
+static const int kEndlessWeight[EK_COUNT]  = { 4, 3, 3, 3, 3 };
+static const int kEndlessOpening[EK_COUNT] = { 1, 1, 1, 1, 1 };
+
+struct Game
+{
+    // ---- 屏幕 ----
+    int   screenW, screenH;
+    int   groundY;
+
+    // ---- 状态机 ----
+    Phase phase;
+    int   round;             // 0..2
+    int   menuSel;
+    int   roundSel;
+    int   frameClock;        // 逻辑帧计数
+    float elapsed;
+    float splashTime;        // 标题闪屏计时
+
+    // ---- 世界 ----
+    int   level;
+    bool  endless;           // 是否无尽模式（由 resetRound 统一设定）
+    float levelWidth;
+    float cameraX;
+
+    // ---- 实体 ----
+    Player player;
+    Plane  plane;
+    Boss   boss;
+    OldMan oldMan;
+    vector<Enemy>     enemies;
+    vector<Bullet>    bullets;
+    vector<Obstacle>  obstacles;
+    vector<Particle>  particles;
+    vector<FxAnim>    fx;
+
+    // ---- 统计 ----
+    int   score, kills, waveIndex, waveTimer;
+    int   enemyHpScale;
+    int   nextBossWave;      // 无尽模式：下一场 Boss 在第几波出现
+    int   bossCount;         // 本轮已经出现的 Boss 数量
+    int   missingAssets;     // 加载失败的素材数
+
+    // ---- 表现 ----
+    float shakeX, shakeY, shakeAmp, shakeTime, shakeDur;
+    Toast toast;
+    Rng   rng;
+    Input input;
+
+    int   mouseX, mouseY;
+    bool  mouseValid;
+    bool  musicOn;
+
+    // ---- 生命周期 ----
+    void init();
+    void loadAssets();
+    void loadOne(IMAGE* dst, const TCHAR* path, int w = 0, int h = 0, bool resize = false);
+    void loadSeries(IMAGE* dst, int count, const TCHAR* fmt, int first);
+    void computeScreen();
+    void resetRound(int roundIndex, bool endless);
+    void spawnWave();
+    void spawnOpeningWave();
+    void spawnObstacles();
+    void spawnEnemy(EnemyKind kind, float x);
+    void spawnBullet(BulletKind kind, float x, float y, float vx, float vy, int damage, bool fromPlayer);
+    void spawnFx(int set, float x, float y, bool flip);
+    void spawnParticles(float x, float y, int count, DWORD color, float speed, float size);
+    void explodeAt(float x, float y, int damage, bool fromPlayer, float radius);
+    void endlessCycle();
+    void shake(float amp, float dur);
+    void showToast(const TCHAR* msg);
+
+    // ---- 更新 ----
+    void update();
+    void updateMenu();
+    void updateRoundSelect();
+    void updatePlay();
+    void updatePlayer(float dt);
+    void updateEnemies(float dt);
+    void updateBullets(float dt);
+    void updateObstacles();
+    void updateBoss(float dt);
+    void updateCamera();
+    void updateParticles(float dt);
+    void updateFx();
+
+    // ---- 绘制 ----
+    void draw();
+    void drawMenu();
+    void drawRoundSelect();
+    void drawWorld(int sx, int sy);
+    void drawHud();
+    void drawToast();
+    void drawEndScreen();
+
+    // ---- 碰撞 ----
+    bool  boxHit(float ax, float ay, float aw, float ah, float bx, float by, float bw, float bh) const;
+    void  playerBox(float px, float py, float& l, float& t, float& r, float& b) const;
+    void  enemyBox(const Enemy& e, float& l, float& t, float& r, float& b) const;
+    void  enemyBoxAt(const Enemy& e, float x, float& l, float& t, float& r, float& b) const;
+    bool  boxBlockedByObstacle(float l, float t, float r, float b) const;
+    bool  playerBlocked(float px, float py) const;
+    bool  bulletHitsObstacle(const Bullet& b, float prevY);
+    void  fireWeapon();
+    void  damagePlayer(int dmg, float fromX);
+    void  killEnemy(Enemy& e);
+
+    // ---- 辅助 ----
+    bool  canInteract() const;
+    float interactX() const;
+    float aimAngle() const;
+    void   muzzlePos(float& mx, float& my) const;
+    int    playerBodyWidth() const;
+    int    playerBodyHeight() const;
+};
+
+static Game g_game;
+
+// ---- 资源加载 -------------------------------------------------------------
+
+void Game::computeScreen()
+{
+    screenW = GetSystemMetrics(SM_CXFULLSCREEN);
+    screenH = GetSystemMetrics(SM_CYFULLSCREEN);
+    if (screenW <= 0) screenW = 1920;
+    if (screenH <= 0) screenH = 1080;
+    groundY = (int)(0.80f * screenH);
+}
+
+// 素材加载：EasyX 的 loadimage 失败时不会崩溃，只会让 IMAGE 宽高为 0，
+// 表现出来就是"某块东西凭空消失"。这里统一记录并打印出来。
+// 素材路径都是 ASCII，直接转成窄字符打印，避免 UNICODE 下 printf 的坑。
+static void printAssetPath(const TCHAR* path)
+{
+    char buf[512];
+    int i = 0;
+    for (; path && path[i] && i < 511; ++i)
+    {
+#ifdef UNICODE
+        // 宽字符转窄字符：素材路径都是 ASCII，超出范围的一律替换成 '?'
+        buf[i] = (char)((path[i] < 128) ? path[i] : '?');
+#else
+        buf[i] = path[i];
+#endif
+    }
+    buf[i] = 0;          // 必须在字符串末尾截断，否则会把栈上的垃圾字符一起打印出来
+    printf("[素材缺失] %s\n", buf);
+}
+
+void Game::loadOne(IMAGE* dst, const TCHAR* path, int w, int h, bool resize)
+{
+    loadimage(dst, path, w, h, resize);
+    if (dst->getwidth() <= 0 || dst->getheight() <= 0)
+    {
+        ++missingAssets;
+        printAssetPath(path);
+    }
+}
+
+void Game::loadSeries(IMAGE* dst, int count, const TCHAR* fmt, int first)
+{
+    TCHAR path[MAX_PATH];
+    for (int i = 0; i < count; ++i)
+    {
+#ifdef UNICODE
+        swprintf_s(path, MAX_PATH, fmt, first + i);
+#else
+        sprintf_s(path, MAX_PATH, fmt, first + i);
+#endif
+        loadOne(&dst[i], path);
+    }
+}
+
+void Game::loadAssets()
+{
+    // 背景
+    for (int i = 0; i < 4; ++i)
+    {
+        const TCHAR* name[4] = { _T("background1.png"), _T("background2.png"),
+                                 _T("background3.png"), _T("bk4.png") };
+        int w = kBgNativeW[i] * screenH / kBgNativeH[i];
+        if (w < screenW) w = screenW;
+        loadOne(&g_assets.bg[i], name[i], w, screenH, true);
+    }
+
+    // 主角身体：[层级][武器][帧]
+    loadSeries(g_assets.playerBody[BT_NORMAL][WP_RIFLE],  3, _T("./zhujue/body/leftqiang (%d).png"),   1);
+    loadSeries(g_assets.playerBody[BT_NORMAL][WP_CANNON], 3, _T("./zhujue/body/leftpao (%d).png"),    1);
+    loadSeries(g_assets.playerBody[BT_HEAVY][WP_RIFLE],  3, _T("./zhujue/body/leftdaqiang (%d).png"), 1);
+    loadSeries(g_assets.playerBody[BT_HEAVY][WP_CANNON], 4, _T("./zhujue/body/leftdapao (%d).png"),  1);
+    g_assets.playerBodyCount[BT_NORMAL][WP_RIFLE]  = 3;
+    g_assets.playerBodyCount[BT_NORMAL][WP_CANNON] = 3;
+    g_assets.playerBodyCount[BT_HEAVY][WP_RIFLE]  = 3;
+    g_assets.playerBodyCount[BT_HEAVY][WP_CANNON] = 4;
+
+    // 主角脚部：[姿态][帧]
+    loadSeries(g_assets.playerFoot[ST_STAND], 1, _T("./zhujue/foot/leftstand.png"), 1);
+    loadSeries(g_assets.playerFoot[ST_RUN],   9, _T("./zhujue/foot/leftrun (%d).png"),  1);
+    loadSeries(g_assets.playerFoot[ST_JUMP],  5, _T("./zhujue/foot/leftjump (%d).png"), 1);
+    loadSeries(g_assets.playerFoot[ST_DOWN],  6, _T("./zhujue/foot/leftdun (%d).png"), 1);
+    g_assets.playerFootCount[ST_STAND] = 1;
+    g_assets.playerFootCount[ST_RUN]   = 9;
+    g_assets.playerFootCount[ST_JUMP]  = 5;
+    g_assets.playerFootCount[ST_DOWN]  = 6;
+
+    // 敌人
+    loadSeries(g_assets.enemy[EK_RIFLEMAN], 7, _T("./qiang/qiang (%d).png"), 1);
+    loadSeries(g_assets.enemy[EK_KNIFE],    7, _T("./dao/dao (%d).png"), 1);
+    loadSeries(g_assets.enemy[EK_ROCKET],   5, _T("./liudan/liudan (%d).png"), 1);
+    loadSeries(g_assets.enemy[EK_THROWER],  9, _T("./shouliudan/sld (%d).png"), 1);
+    loadOne(&g_assets.enemy[EK_PLANE][0], _T("./feiji/feiji.png"));
+    g_assets.enemyCount[EK_RIFLEMAN] = 7;
+    g_assets.enemyCount[EK_KNIFE]    = 7;
+    g_assets.enemyCount[EK_ROCKET]   = 5;
+    g_assets.enemyCount[EK_THROWER]  = 9;
+    g_assets.enemyCount[EK_PLANE]    = 1;
+
+    // 死亡 / 爆炸
+    loadSeries(g_assets.deathA,   5, _T("./die/die (%d).png"),  1);
+    loadSeries(g_assets.deathB,   8, _T("./die2/die (%d).png"), 1);
+    loadSeries(g_assets.bombBoom, 8, _T("./feiji/bomb (%d).png"), 1);
+
+    // Boss
+    loadSeries(g_assets.bossAttack, 10, _T("./boss/boss (%d).png"), 1);
+    loadSeries(g_assets.bossAnger,   2, _T("./boss/bossanger (%d).png"), 1);
+    loadSeries(g_assets.bossStand,   4, _T("./boss/bossstand (%d).png"), 1);
+    loadSeries(g_assets.bossDie,     5, _T("./boss/bossdie (%d).png"), 1);
+
+    // 老人
+    loadSeries(g_assets.oldManBound, 3, _T("./oldman/laorenbang (%d).png"), 1);
+    loadSeries(g_assets.oldManFree,  4, _T("./oldman/laorenfree (%d).png"), 1);
+
+    // 单张资源
+    loadOne(&g_assets.planePlayer,      _T("myFeiji.png"));
+    loadOne(&g_assets.bulletPlayer,     _T("zidan.png"));
+    loadOne(&g_assets.bulletHeavy,      _T("dazidan.png"));
+    loadOne(&g_assets.bulletEnemyRifle, _T("enemyzidan.png"));
+    loadOne(&g_assets.bulletEnemyRocket,_T("liudan.png"));
+    loadOne(&g_assets.bulletGrenade,    _T("./shouliudan/sld.png"));
+    loadOne(&g_assets.planeBomb,        _T("./feiji/zhadan.png"));
+    loadOne(&g_assets.impact,           _T("boom.png"));
+    loadOne(&g_assets.letterE,          _T("E.png"));
+    loadOne(&g_assets.barrel,           _T("tong.png"));
+    loadOne(&g_assets.barrelBroken,     _T("potong.png"));
+    loadOne(&g_assets.sandbag,          _T("shadai.png"));
+    loadOne(&g_assets.win,              _T("win.png"));
+    loadOne(&g_assets.splash,            _T("firstImg.jpg"), screenW, screenH, true);
+    loadOne(&g_assets.fail,             _T("fail.png"));
+    loadOne(&g_assets.menu,             _T("menu.png"), screenW, screenH, true);
+    loadOne(&g_assets.modeNormal,       _T("putong.png"));
+    loadOne(&g_assets.modeEndless,      _T("wujing.png"));
+    loadOne(&g_assets.select,           _T("select.png"));
+    loadOne(&g_assets.roundBadge[0],    _T("round1.png"));
+    loadOne(&g_assets.roundBadge[1],    _T("round2.png"));
+    loadOne(&g_assets.roundBadge[2],    _T("round3.png"));
+
+    // 素材自检：把结果打印出来，避免"素材没找到但画面上什么都没有"这种哑错误
+    printf("[资源] 缺失素材 %d 个\n", missingAssets);
+}
+
+// ---- 关卡初始化 -----------------------------------------------------------
+
+void Game::resetRound(int roundIndex, bool endlessMode)
+{
+    endless = endlessMode;
+    const bool isEndless = endlessMode;
+    level = isEndless ? 3 : roundIndex;
+    // 关卡索引在这里统一，避免后续用 round 读配置时和 roundIndex 不一致
+    if (!endless)
+        round = roundIndex;
+    const float bgScale = (float)screenH / (float)kBgNativeH[level];
+    levelWidth = (float)kBgNativeW[level] * bgScale;
+    if (levelWidth < (float)screenW + 800.f)
+        levelWidth = (float)screenW + 800.f;
+
+    cameraX = 0.f;
+    enemies.clear();
+    bullets.clear();
+    obstacles.clear();
+    particles.clear();
+    fx.clear();
+
+    waveIndex = 0;
+    waveTimer = 40;
+    nextBossWave = Cfg::BOSS_WAVE_INTERVAL;
+    bossCount = 0;              // F4：Boss 计数按轮重置，避免跨轮/跨模式泄漏
+    elapsed = 0.f;
+
+    // 表现状态同样要清干净，别把上一轮的残影带进新一关
+    toast.active = false;
+    shakeAmp = 0.f;
+    shakeTime = 0.f;
+    shakeX = 0.f;
+    shakeY = 0.f;
+
+    // 主角
+    player.hp = (player.hp > 0) ? player.hp : Cfg::PLAYER_MAX_HP;   // 兜底：血量非法时给满
+    player.x = 220.f;
+    player.y = (float)groundY;
+    player.vy = 0.f;
+    player.stance = ST_STAND;
+    player.faceRight = true;
+    player.weapon = WP_RIFLE;
+    player.cannonAmmo = Cfg::CANNON_AMMO_MAX;
+    player.fireCooldown = 0;
+    player.invuln = 0;
+    player.muzzleFlash = 0;
+    player.inPlane = false;
+
+    // 玩家飞机
+    plane.available = isEndless || (roundIndex >= 1);
+    plane.x = isEndless ? 520.f : 900.f;
+    plane.y = (float)(groundY - 40);
+    plane.carried = false;
+    if (roundIndex == 1)                 // 第二关开局就在机上
+    {
+        plane.carried = true;
+        player.inPlane = true;
+        player.x = plane.x;
+        player.y = plane.y;
+    }
+
+    // Boss / 老人
+    boss.state = BSS_NONE;
+    boss.hp = boss.maxHp = 0;
+    oldMan.active = false;
+    oldMan.freed = false;
+
+    // 障碍：按关卡配置摆放（原版第一关无障碍，第二关 5 个，第三关 6 个）
+    spawnObstacles();
+
+    enemyHpScale = isEndless ? 0 : kLevel[roundIndex].enemyHpBonus;
+
+    // 开局编队（每关构成不同）
+    spawnOpeningWave();
+
+    showToast(isEndless ? _T("无尽模式 开始！") : (roundIndex == 0 ? _T("第一关") : (roundIndex == 1 ? _T("第二关") : _T("第三关"))));
+}
+
+// 障碍摆放：按关卡配置生成掩体。
+// 原版：第一关无障碍，第二关 2 沙袋 + 3 油桶，第三关 1 沙袋 + 5 油桶。
+// 障碍必须落在关卡宽度内 —— 无尽模式的关卡宽度比普通关卡小得多，
+// 固定间距会把掩体摆到关卡外，玩家永远碰不到（F3 / 越界问题）。
+void Game::spawnObstacles()
+{
+    obstacles.clear();
+    const int count = endless ? 8 : kLevel[round].obstacleCount;
+    if (count <= 0)
+        return;
+
+    const float first = 900.f;
+    const float last  = max(first + 120.f, levelWidth - 420.f);
+    const float step  = (count > 1) ? (last - first) / (float)(count - 1) : 0.f;
+    for (int i = 0; i < count; ++i)
+    {
+        Obstacle o;
+        o.alive = true;
+        // 2/3 是可破坏的油桶，1/3 是挡子弹的沙袋
+        o.destructible = (i % 3 != 2);
+        o.x = clampf(first + (float)i * step + (float)rng.range(-70, 70), first, last);
+        o.y = (float)(groundY + (o.destructible ? 10 : 20));
+        o.maxHp = o.hp = o.destructible ? Cfg::BARREL_HP : 0;
+        o.flash = 0;
+        obstacles.push_back(o);
+    }
+}
+
+// ---- 通用生成 -------------------------------------------------------------
+
+void Game::spawnBullet(BulletKind kind, float x, float y, float vx, float vy, int damage, bool fromPlayer)
+{
+    Bullet b;
+    b.alive = true;
+    b.kind = kind;
+    b.x = x; b.y = y;
+    b.vx = vx; b.vy = vy;
+    b.gravity = 0.f;
+    b.damage = damage;
+    b.fromPlayer = fromPlayer;
+    b.age = 0;
+    b.maxAge = 600;
+
+    switch (kind)
+    {
+    case BLK_RIFLE:
+        b.maxAge = 120; break;
+    case BLK_CANNON:
+        b.maxAge = 120; break;
+    case BLK_ENEMY_RIFLE:
+        b.maxAge = 400; break;
+    case BLK_ENEMY_ROCKET:
+        b.maxAge = 400; break;
+    case BLK_GRENADE:
+        b.gravity = 200.f;
+        b.vy = -180.f;
+        b.maxAge = 400; break;
+    case BLK_BOMB:
+        b.gravity = 0.f;
+        b.vy = 160.f;
+        b.maxAge = 300; break;
+    case BLK_ENEMY_BOMB:
+        b.gravity = 0.f;
+        b.vy = 170.f;
+        b.maxAge = 300; break;
+    }
+
+    bullets.push_back(b);
+}
+
+void Game::spawnEnemy(EnemyKind kind, float x)
+{
+    Enemy e;
+    e.kind = kind;
+    e.alive = true;
+    e.x = x;
+    e.y = (float)(kind == EK_PLANE ? (int)(0.18f * screenH) : groundY);
+    e.vx = (kind == EK_PLANE) ? -130.f : 0.f;   // 敌机向左横穿
+    e.maxHp = kEnemySpec[kind].hp + enemyHpScale;
+    e.hp = e.maxHp;
+    e.faceRight = false;
+    e.anim = 0;
+    e.fireTimer = rng.range(20, 70);
+    e.atkTicks = 0;
+    e.atkHit = true;
+    e.flash = 0;
+    e.muzzle = 0;
+    e.hurtCd = 0;
+    enemies.push_back(e);
+}
+
+// 开局固定编队：每关的起始敌人构成不同（A7）
+void Game::spawnOpeningWave()
+{
+    const int* opening = endless ? kEndlessOpening : kLevel[round].opening;
+    int slot = 0;
+    for (int k = 0; k < EK_COUNT; ++k)
+    {
+        for (int i = 0; i < opening[k]; ++i)
+        {
+            const float x = cameraX + 520.f + (float)slot * 180.f;
+            spawnEnemy((EnemyKind)k, x);
+            ++slot;
+        }
+    }
+}
+
+void Game::spawnWave()
+{
+    int maxAlive = endless ? 7 + waveIndex / 6 : kLevel[round].maxAlive;
+    if ((int)enemies.size() >= maxAlive)
+        return;
+
+    const int* weight = endless ? kEndlessWeight : kLevel[round].weight;
+    int totalWeight = 0;
+    for (int k = 0; k < EK_COUNT; ++k)
+        totalWeight += weight[k];
+
+    const int n = rng.range(1, 3);
+    for (int i = 0; i < n; ++i)
+    {
+        // 按关卡权重抽敌人类型（各关构成不同）
+        int r = rng.range(0, totalWeight - 1);
+        EnemyKind kind = EK_RIFLEMAN;
+        for (int k = 0; k < EK_COUNT; ++k)
+        {
+            if (r < weight[k]) { kind = (EnemyKind)k; break; }
+            r -= weight[k];
+        }
+        const float x = cameraX + (float)screenW + (float)rng.range(20, 160) + (float)i * 70.f;
+        spawnEnemy(kind, x);
+    }
+}
+
+void Game::spawnFx(int set, float x, float y, bool flip)
+{
+    FxAnim f;
+    f.alive = true;
+    f.x = x; f.y = y;
+    f.set = set;
+    f.frame = 0;
+    f.flip = flip;
+    fx.push_back(f);
+}
+
+void Game::spawnParticles(float x, float y, int count, DWORD color, float speed, float size)
+{
+    for (int i = 0; i < count; ++i)
+    {
+        Particle p;
+        p.alive = true;
+        p.x = x; p.y = y;
+        const float a = rng.unit() * 2.f * PI_F;
+        const float sp = speed * (0.35f + 0.65f * rng.unit());
+        p.vx = (float)cos(a) * sp;
+        p.vy = (float)sin(a) * sp - speed * 0.35f;
+        p.maxLife = p.life = 0.30f + 0.35f * rng.unit();
+        p.size = size * (0.6f + 0.8f * rng.unit());
+        p.gravity = 420.f;
+        p.color = color;
+        particles.push_back(p);
+    }
+}
+
+void Game::shake(float amp, float dur)
+{
+    if (amp > shakeAmp)
+    {
+        shakeAmp = amp;
+        shakeTime = dur;
+        shakeDur = dur;
+    }
+}
+
+void Game::showToast(const TCHAR* msg)
+{
+    toast.active = true;
+    toast.life = 2.0f;
+    for (int i = 0; i < 47 && msg[i]; ++i)
+        toast.text[i] = msg[i];
+    toast.text[47] = 0;
+}
+
+// ---- 碰撞辅助 -------------------------------------------------------------
+
+// 主角碰撞盒：用固定常量，而不是从"当前正在画的贴图"推导。
+// 否则开火瞬间贴图切到重武器、尺寸一变，主角的受击盒就会突变（B2）。
+void Game::playerBox(float px, float py, float& l, float& t, float& r, float& b) const
+{
+    const int fh = g_assets.playerFootCount[player.stance] ? g_assets.playerFoot[player.stance][0].getheight() : 30;
+    l = px + Cfg::PLAYER_HIT_W * Cfg::PLAYER_HIT_LR;
+    r = px + Cfg::PLAYER_HIT_W * (1.f - Cfg::PLAYER_HIT_LR);
+    t = py + Cfg::PLAYER_HIT_H * Cfg::PLAYER_HIT_TR;
+    b = py + Cfg::PLAYER_HIT_H - Cfg::FOOT_OVERLAP + fh * 0.45f;
+}
+
+void Game::enemyBoxAt(const Enemy& e, float x, float& l, float& t, float& r, float& b) const
+{
+    const IMAGE& img = g_assets.enemy[e.kind][0];
+    const float w = (float)img.getwidth();
+    const float h = (float)img.getheight();
+    l = x + w * 0.22f;
+    r = x + w * 0.78f;
+    t = e.y + h * 0.20f;
+    b = e.y + h * 0.92f;
+}
+
+void Game::enemyBox(const Enemy& e, float& l, float& t, float& r, float& b) const
+{
+    enemyBoxAt(e, e.x, l, t, r, b);
+}
+
+bool Game::boxHit(float ax, float ay, float aw, float ah, float bx, float by, float bw, float bh) const
+{
+    return (ax < bx + bw) && (ax + aw > bx) && (ay < by + bh) && (ay + ah > by);
+}
+
+// 子弹与掩体的碰撞。
+// 返回 true 表示子弹被掩体挡住（不论油桶还是沙袋）。
+// 可破坏的油桶会掉血并在被打爆时炸出碎片；沙袋不可破坏，但同样会吃掉子弹。
+//
+// prevY 是子弹上一帧的 y：手雷这类高速下落的物体必须用"这一帧走过的区间"去撞掩体，
+// 否则它会一步跨过掩体的高度带，碰撞形同虚设。
+bool Game::bulletHitsObstacle(const Bullet& b, float prevY)
+{
+    const float yTop = min(prevY, b.y);
+    const float yBot = max(prevY, b.y);
+    for (size_t i = 0; i < obstacles.size(); ++i)
+    {
+        Obstacle& o = obstacles[i];
+        if (!o.alive) continue;
+        const IMAGE& img = o.destructible ? g_assets.barrel : g_assets.sandbag;
+        const float ow = (float)img.getwidth();
+        const float oh = (float)img.getheight();
+        if (b.x < o.x || b.x > o.x + ow) continue;
+        if (yBot < o.y - oh * 0.45f || yTop > o.y + oh * 0.45f) continue;
+
+        if (o.destructible)
+        {
+            o.hp -= b.damage;
+            o.flash = 5;
+            if (o.hp <= 0)
+            {
+                o.alive = false;
+                spawnParticles(o.x + ow * 0.5f, o.y, 28, RGB(255, 170, 60), 280.f, 5.f);
+                shake(10.f, 0.30f);
+            }
+        }
+        return true;
+    }
+    return false;
+}
+
+// 统一的爆炸处理（炸弹、手雷、炮弹爆炸共用）
+void Game::explodeAt(float x, float y, int damage, bool fromPlayer, float radius)
+{
+    spawnFx(2, x - 40.f, y - 60.f, false);
+    spawnParticles(x, y, 24, RGB(255, 170, 60), 280.f, 5.f);
+    shake(10.f, 0.30f);
+
+    if (fromPlayer)
+    {
+        for (size_t j = 0; j < enemies.size(); ++j)
+        {
+            Enemy& e = enemies[j];
+            if (!e.alive) continue;
+            const float ex = e.x + 40.f;
+            const float ey = e.y + 30.f;
+            const float ddx = ex - x;
+            const float ddy = ey - y;
+            if (ddx * ddx + ddy * ddy < radius * radius)
+            {
+                e.hp -= damage;
+                e.flash = 8;
+                if (e.hp <= 0)
+                    killEnemy(e);
+            }
+        }
+    }
+    else if (!player.inPlane)
+    {
+        const float ddx = (player.x + 30.f) - x;
+        const float ddy = (player.y + 30.f) - y;
+        if (ddx * ddx + ddy * ddy < radius * radius)
+            damagePlayer(damage, x);
+    }
+}
+
+// 障碍碰撞：给一个盒子和障碍比，判定是否被挡住。
+// 碰撞盒与贴图对齐（贴图画在 [o.x, o.x+ow] x [o.y, o.y+oh]）。
+bool Game::boxBlockedByObstacle(float l, float t, float r, float b) const
+{
+    for (size_t i = 0; i < obstacles.size(); ++i)
+    {
+        const Obstacle& o = obstacles[i];
+        if (!o.alive) continue;
+        const IMAGE& img = o.destructible ? g_assets.barrel : g_assets.sandbag;
+        const float ow = (float)img.getwidth();
+        const float oh = (float)img.getheight();
+        if (boxHit(l, t, r - l, b - t, o.x, o.y, ow, oh))
+            return true;
+    }
+    return false;
+}
+
+// 主角避障：用主角自己的碰撞盒。
+// 油桶、沙袋都会挡住主角，跳跃越过沙袋后即可穿行。
+bool Game::playerBlocked(float px, float py) const
+{
+    float l, t, r, b;
+    playerBox(px, py, l, t, r, b);
+    return boxBlockedByObstacle(l, t, r, b);
+}
+
+// 绘制用的贴图尺寸（会随武器/开火变化），碰撞盒请用 playerBox()
+int Game::playerBodyWidth() const
+{
+    const IMAGE& img = g_assets.playerBody[player.muzzleFlash > 0 ? BT_HEAVY : BT_NORMAL][player.weapon][0];
+    return img.getwidth() ? img.getwidth() : Cfg::PLAYER_HIT_W;
+}
+
+int Game::playerBodyHeight() const
+{
+    const IMAGE& img = g_assets.playerBody[player.muzzleFlash > 0 ? BT_HEAVY : BT_NORMAL][player.weapon][0];
+    return img.getheight() ? img.getheight() : Cfg::PLAYER_HIT_H;
+}
+
+void Game::muzzlePos(float& mx, float& my) const
+{
+    if (player.inPlane)
+    {
+        const int pw = g_assets.planePlayer.getwidth();
+        const int ph = g_assets.planePlayer.getheight();
+        mx = player.faceRight ? player.x + pw * 0.92f : player.x + pw * 0.08f;
+        my = player.y + ph * 0.45f;
+        return;
+    }
+    const int bw = playerBodyWidth();
+    const int bh = playerBodyHeight();
+    mx = player.faceRight ? player.x + bw * 0.92f : player.x + bw * 0.08f;
+    my = player.y + bh * 0.45f;
+}
+
+float Game::aimAngle() const
+{
+    float mx, my;
+    muzzlePos(mx, my);
+    if (!mouseValid)
+        return player.faceRight ? 0.f : PI_F;
+    const float dx = (float)mouseX - mx;
+    const float dy = (float)mouseY - my;
+    if (dx * dx + dy * dy < 1.f)
+        return player.faceRight ? 0.f : PI_F;
+    return (float)atan2(dy, dx);
+}
+
+// ---- 初始化 ---------------------------------------------------------------
+
+// 无尽模式的一轮结束：救完人后重置状态，继续下一轮
+void Game::endlessCycle()
+{
+    boss.state = BSS_NONE;
+    boss.hp = boss.maxHp = 0;
+    boss.angry = false;
+    oldMan.active = false;
+    oldMan.freed = false;
+
+    // 回到起点开新一段，并把 Boss 触发计数重置，
+    // 这样下一场 Boss 会在新的 12 波节点再次出现。
+    player.x = 220.f;
+    player.y = (float)groundY;
+    player.vy = 0.f;
+    player.inPlane = false;
+    plane.carried = false;
+    plane.x = 520.f;
+    cameraX = 0.f;
+    waveIndex = 0;
+    waveTimer = 40;
+    nextBossWave = Cfg::BOSS_WAVE_INTERVAL;
+    enemies.clear();
+    bullets.clear();
+    spawnObstacles();          // F3：新一轮必须重新铺掩体，否则第二轮起掩体全失
+    showToast(_T("下一轮开始！"));
+}
+
+void Game::init()
+{
+    rng.seed((unsigned int)time(0));
+    computeScreen();
+    loadAssets();
+
+    phase = PH_SPLASH;
+    splashTime = 0.f;
+    round = 0;
+    menuSel = 0;
+    roundSel = 0;
+    score = 0;
+    kills = 0;
+    musicOn = true;
+    mouseValid = false;
+    input.reset();
+}
+
+
+// ============================================================================
+//  8. 更新
+// ============================================================================
+
+static inline float fabsf_(float v) { return v < 0.f ? -v : v; }
+
+void Game::update()
+{
+    input.update();
+    ++frameClock;
+
+    // EasyX 的鼠标位置只在有消息时更新，这里保留最后一次位置
+    while (MouseHit())
+    {
+        MOUSEMSG m = GetMouseMsg();
+        mouseX = m.x;
+        mouseY = m.y;
+        mouseValid = true;
+    }
+
+    switch (phase)
+    {
+    case PH_SPLASH:
+        splashTime += Cfg::DT;
+        if (splashTime > 1.6f || input.pressed(VK_RETURN) || input.pressed(VK_SPACE))
+            phase = PH_MENU;
+        break;
+    case PH_MENU:       updateMenu(); break;
+    case PH_ROUND_SEL:  updateRoundSelect(); break;
+    case PH_PLAY:
+    case PH_CLEAR:      updatePlay(); break;
+    case PH_WIN:
+    case PH_OVER:
+        if (input.pressed(VK_RETURN) || input.pressed(VK_SPACE))
+        {
+            // 原版行为：普通模式失败后回到选关界面，无尽模式回到主菜单（A8）
+            if (!endless)
+            {
+                phase = PH_ROUND_SEL;
+                roundSel = round;
+            }
+            else
+            {
+                phase = PH_MENU;
+                menuSel = 1;
+            }
+        }
+        break;
+    }
+
+    updateParticles(Cfg::DT);
+    updateFx();
+
+    // 提示气泡的寿命在逻辑帧里递减，与渲染帧率解耦
+    if (toast.active)
+    {
+        toast.life -= Cfg::DT;
+        if (toast.life <= 0.f)
+            toast.active = false;
+    }
+
+    // 屏幕震动
+    if (shakeTime > 0.f)
+    {
+        shakeTime -= Cfg::DT;
+        const float dur = (shakeDur > 0.f) ? shakeDur : 1.f;
+        const float k = clampf(shakeTime / dur, 0.f, 1.f);
+        shakeX = (rng.unit() * 2.f - 1.f) * shakeAmp * k;
+        shakeY = (rng.unit() * 2.f - 1.f) * shakeAmp * k;
+        if (shakeTime <= 0.f)
+        {
+            shakeAmp = 0.f;
+            shakeX = shakeY = 0.f;
+        }
+    }
+}
+
+void Game::updateMenu()
+{
+    if (input.pressed(VK_SPACE))
+        menuSel = 1 - menuSel;
+
+    if (input.pressed(VK_RETURN))
+    {
+        score = 0;
+        kills = 0;
+        player.hp = Cfg::PLAYER_MAX_HP;
+        if (menuSel == 0)
+        {
+            endless = false;
+            phase = PH_ROUND_SEL;
+            roundSel = 0;
+        }
+        else
+        {
+            resetRound(0, true);
+            phase = PH_PLAY;
+        }
+    }
+}
+
+void Game::updateRoundSelect()
+{
+    if (input.pressed(VK_SPACE))
+        roundSel = (roundSel + 1) % 3;
+    if (input.pressed(VK_ESCAPE))
+        phase = PH_MENU;
+    if (input.pressed(VK_RETURN))
+    {
+        round = roundSel;
+        score = 0;
+        kills = 0;
+        player.hp = Cfg::PLAYER_MAX_HP;
+        resetRound(round, false);
+        phase = PH_PLAY;
+    }
+}
+
+void Game::updatePlay()
+{
+    const float dt = Cfg::DT;
+    elapsed += dt;
+
+    // 关卡已完成：等待确认进入下一关
+    if (phase == PH_CLEAR)
+    {
+        if (input.pressed(VK_RETURN) || input.pressed(VK_SPACE))
+        {
+            if (!endless)
+            {
+                if (round < 2)
+                {
+                    round++;
+                    player.hp = min(Cfg::PLAYER_MAX_HP, player.hp + 30);
+                    resetRound(round, false);
+                    phase = PH_PLAY;
+                }
+                else
+                {
+                    phase = PH_WIN;
+                }
+            }
+            else
+            {
+                phase = PH_OVER;
+            }
+        }
+        return;
+    }
+
+    updatePlayer(dt);
+    updateEnemies(dt);
+    updateBullets(dt);
+    updateObstacles();
+    updateBoss(dt);
+    updateCamera();
+
+    // 过关时清空残留弹幕（B4）：必须放在所有实体更新之后，
+    // 否则同一帧里敌人刚发射的子弹会留到下一帧被冻在过关画面上（F2）。
+    if (phase == PH_CLEAR)
+        bullets.clear();
+
+    // Boss 触发
+    if (phase == PH_PLAY && boss.state == BSS_NONE)
+    {
+        bool wantsBoss = false;
+        if (!endless)
+            wantsBoss = kLevel[round].hasBoss;
+        else
+            wantsBoss = (waveIndex >= nextBossWave);
+
+        if (wantsBoss && cameraX > levelWidth - (float)screenW - 760.f)
+        {
+            boss.state = BSS_ENTER;
+            boss.x = levelWidth - 300.f;
+            ++bossCount;
+            if (endless)
+                nextBossWave = waveIndex + Cfg::BOSS_WAVE_INTERVAL;
+            // 让 Boss 的脚和主角站在同一条地平线上
+            {
+                const int bossH = g_assets.bossAttack[0].getheight();
+                const int footH = (g_assets.playerFootCount[ST_STAND] > 0)
+                    ? g_assets.playerFoot[ST_STAND][0].getheight() : 33;
+                const int playerBottom = groundY + playerBodyHeight() - Cfg::FOOT_OVERLAP + footH;
+                boss.y = (float)(playerBottom - bossH);
+            }
+            boss.maxHp = 80 + enemyHpScale * 20;
+            boss.hp = boss.maxHp;
+            boss.anim = 0;
+            boss.atkTicks = 0;
+            boss.cool = 50;
+            boss.flash = 0;
+            boss.angry = false;
+            showToast(endless ? _T("BOSS 出现！无尽模式") : _T("BOSS 出现！"));
+        }
+    }
+
+    // 波次
+    if (phase == PH_PLAY)
+    {
+        if (waveTimer > 0)
+        {
+            waveTimer--;
+        }
+        else
+        {
+            waveTimer = endless
+                ? max(28, Cfg::WAVE_INTERVAL_TICK - waveIndex * 2)
+                : kLevel[round].waveInterval;
+            spawnWave();
+            waveIndex++;
+        }
+    }
+
+    if (player.hp <= 0 && phase != PH_OVER)
+    {
+        player.hp = 0;
+        phase = PH_OVER;
+        showToast(_T("任务失败"));
+    }
+}
+
+void Game::updatePlayer(float dt)
+{
+    Player& p = player;
+    if (p.invuln > 0) p.invuln--;
+    if (p.fireCooldown > 0) p.fireCooldown--;
+    if (p.muzzleFlash > 0) p.muzzleFlash--;
+
+    // 武器切换（边缘触发，不会连发）
+    if (input.pressed(VK_1))
+        p.weapon = WP_RIFLE;
+    if (input.pressed(VK_2))
+    {
+        if (p.cannonAmmo > 0)
+            p.weapon = WP_CANNON;
+        else
+            showToast(_T("炮弹已耗尽"));
+    }
+    if (p.weapon == WP_CANNON && p.cannonAmmo <= 0)
+    {
+        p.weapon = WP_RIFLE;
+        showToast(_T("炮弹已耗尽"));
+    }
+
+    const bool left  = input.held(VK_LEFT)  || input.held('A');
+    const bool right = input.held(VK_RIGHT) || input.held('D');
+    const bool up    = input.held(VK_UP)    || input.held('W');
+    const bool down  = input.held(VK_DOWN)  || input.held('S');
+
+    // ---- 机上 ----
+    if (p.inPlane)
+    {
+        if (left)  p.x -= Cfg::PLAYER_SPEED * 1.15f * dt;
+        if (right) p.x += Cfg::PLAYER_SPEED * 1.15f * dt;
+        if (up)    p.y -= 210.f * dt;
+        if (down)  p.y += 210.f * dt;
+
+        p.x = clampf(p.x, cameraX + 40.f, cameraX + (float)screenW - 40.f);
+        p.y = clampf(p.y, 40.f, (float)groundY - 60.f);
+        plane.x = p.x;
+        plane.y = p.y;
+
+        if (input.pressed(VK_SPACE))
+        {
+            spawnBullet(BLK_BOMB, p.x, p.y + 24.f, 0.f, 170.f, 12, true);
+            p.muzzleFlash = 8;
+        }
+        // 机上同样可以开火
+        if (input.held(VK_LBUTTON))
+            fireWeapon();
+        if (input.pressed('E'))
+        {
+            p.inPlane = false;
+            plane.carried = false;
+            p.x = plane.x;
+            p.y = (float)groundY;
+            p.vy = 0.f;
+            showToast(_T("已离开飞机"));
+        }
+        return;
+    }
+
+    // ---- 地面 ----
+    const bool onGround = (p.y >= (float)groundY - 0.5f);
+    bool moving = false;
+
+    if (left)
+    {
+        const float nx = p.x - Cfg::PLAYER_SPEED * dt;
+        if (!playerBlocked(nx, p.y)) { p.x = nx; moving = true; }
+        p.faceRight = false;
+    }
+    if (right)
+    {
+        const float nx = p.x + Cfg::PLAYER_SPEED * dt;
+        if (!playerBlocked(nx, p.y)) { p.x = nx; moving = true; }
+        p.faceRight = true;
+    }
+
+    if (up && onGround)
+        p.vy = -Cfg::PLAYER_JUMP_V;
+
+    p.vy += Cfg::PLAYER_GRAVITY * dt;
+    p.y += p.vy * dt;
+    if (p.y >= (float)groundY)
+    {
+        p.y = (float)groundY;
+        p.vy = 0.f;
+    }
+    p.x = clampf(p.x, 60.f, levelWidth - 60.f);
+
+    // 姿态
+    if (p.y < (float)groundY - 0.5f)
+        p.stance = ST_JUMP;
+    else if (down)
+        p.stance = ST_DOWN;
+    else if (moving)
+        p.stance = ST_RUN;
+    else
+        p.stance = ST_STAND;
+
+    // 射击
+    if (input.held(VK_LBUTTON))
+        fireWeapon();
+
+    // 交互
+    if (input.pressed('E'))
+    {
+        if (plane.available && !plane.carried &&
+            fabsf_(p.x - plane.x) < 95.f && p.y >= (float)groundY - 90.f)
+        {
+            p.inPlane = true;
+            plane.carried = true;
+            p.x = plane.x;
+            p.y = plane.y;
+            p.vy = 0.f;
+            showToast(_T("登上飞机"));
+        }
+        else if (oldMan.active && !oldMan.freed && fabsf_(p.x - oldMan.x) < 95.f)
+        {
+            oldMan.freed = true;
+            score += 500;
+            showToast(_T("人质已获救"));
+            if (endless)
+            {
+                // 无尽模式：救完人继续下一段，不结束游戏（A6）
+                endlessCycle();
+            }
+            else
+            {
+                // 注意：这里只切状态，不清子弹。
+                // 清弹统一放在 updatePlay() 的实体更新之后（F2），
+                // 否则本帧敌人刚开的火会补进来，子弹被冻结在过关画面上。
+                phase = PH_CLEAR;
+            }
+        }
+    }
+}
+
+void Game::updateEnemies(float dt)
+{
+    for (size_t i = 0; i < enemies.size(); ++i)
+    {
+        Enemy& e = enemies[i];
+        if (!e.alive) continue;
+
+        if (e.flash > 0) e.flash--;
+        if (e.muzzle > 0) e.muzzle--;
+        if (e.hurtCd > 0) e.hurtCd--;
+
+        const EnemySpec& sp = kEnemySpec[e.kind];
+        const float dx = player.x - e.x;
+        const float adx = fabsf_(dx);
+
+        // ---- 敌机 ----
+        if (sp.isPlane)
+        {
+            // 敌机恒定向左飞行，朝向必须由速度决定（A5）。
+            // 若按"朝玩家"推导，飞过玩家之后会被镜像成朝右，像是掉头。
+            e.faceRight = (e.vx > 0.f);
+            e.x += e.vx * dt;
+            if (e.fireTimer > 0)
+            {
+                e.fireTimer--;
+            }
+            else
+            {
+                e.fireTimer = Cfg::ENEMY_BOMB_CD;
+                spawnBullet(BLK_ENEMY_BOMB, e.x, e.y + 40.f, 0.f, 170.f, 10, false);
+            }
+            e.anim = 0;
+            if (e.x < cameraX - 500.f || e.x > cameraX + (float)screenW + 700.f)
+                e.alive = false;
+            continue;
+        }
+
+        // ---- 地面敌人 ----
+        e.faceRight = (dx > 0);
+
+        // 每种敌人有自己的"停下距离"（A1）：
+        // 枪兵停在远处开火，刀兵必须贴到脸上才能砍人。
+        // 敌人移动不与掩体做碰撞（F1）：掩体只挡子弹和主角。
+        // 原版用 checkIsDangZhu() 把"整个 update"冻结在障碍前，
+        // 结果是刀兵永远走不到玩家面前、近战技能形同虚设。
+        // 这里改成敌人直接穿过掩体：既保住了近战，也彻底消灭"卡死"这一类缺陷。
+        if (adx > sp.stopRange)
+            e.x += (dx > 0 ? sp.speed : -sp.speed) * dt;
+        e.x = clampf(e.x, cameraX - 200.f, cameraX + (float)screenW + 300.f);
+
+        if (e.fireTimer > 0)
+            e.fireTimer--;
+
+        if (sp.fireInterval > 0 && adx < Cfg::ENEMY_AGGRO_RANGE && e.fireTimer == 0)
+        {
+            e.fireTimer = sp.fireInterval;
+            e.atkTicks = sp.atkTicks;
+            e.muzzle = 8;
+            const float mx = e.x + (e.faceRight ? 48.f : -48.f);
+            const float my = e.y + 34.f;
+
+            if (e.kind == EK_RIFLEMAN)
+                spawnBullet(BLK_ENEMY_RIFLE, mx, my, e.faceRight ? 240.f : -240.f, 0.f, sp.damage, false);
+            else if (e.kind == EK_ROCKET)
+                spawnBullet(BLK_ENEMY_ROCKET, mx, my, e.faceRight ? 200.f : -200.f, 0.f, sp.damage, false);
+            else if (e.kind == EK_THROWER)
+                spawnBullet(BLK_GRENADE, mx, my, e.faceRight ? 240.f : -240.f, 0.f, sp.damage, false);
+        }
+
+        // 刀兵近战：贴身后起手，伤害在挥砍动画中段结算
+        if (e.kind == EK_KNIFE && adx <= Cfg::ENEMY_KNIFE_STOP + 30.f &&
+            e.hurtCd <= 0 && e.atkTicks <= 0)
+        {
+            e.atkTicks = sp.atkTicks;
+            e.atkHit = false;
+            e.hurtCd = Cfg::ENEMY_KNIFE_CD;
+        }
+
+        // 动画：待机循环，攻击时切到攻击帧
+        if (e.atkTicks > 0)
+        {
+            const int atkElapsed = sp.atkTicks - e.atkTicks;
+            e.anim = sp.atkStart + (atkElapsed * sp.atkFrames) / sp.atkTicks;
+            // 挥砍到一半才判定命中，手感更准
+            if (e.kind == EK_KNIFE && !e.atkHit && atkElapsed * 2 >= sp.atkTicks)
+            {
+                e.atkHit = true;
+                if (adx <= Cfg::ENEMY_KNIFE_RANGE)
+                {
+                    damagePlayer(sp.damage, e.x);
+                    spawnParticles(e.x + 20.f, e.y + 40.f, 6, RGB(255, 240, 200), 150.f, 3.f);
+                }
+            }
+            e.atkTicks--;
+        }
+        else
+        {
+            e.anim = (int)(frameClock / Cfg::ANIM_DIV) % sp.idleFrames;
+        }
+    }
+}
+
+void Game::updateBullets(float dt)
+{
+    for (size_t i = 0; i < bullets.size(); ++i)
+    {
+        Bullet& b = bullets[i];
+        if (!b.alive) continue;
+
+        const float prevY = b.y;
+        b.vy += b.gravity * dt;
+        b.x += b.vx * dt;
+        b.y += b.vy * dt;
+        b.age++;
+
+        if (b.age > b.maxAge ||
+            b.y > (float)screenH + 300.f || b.y < -500.f ||
+            b.x < cameraX - 600.f || b.x > cameraX + (float)screenW + 600.f)
+        {
+            b.alive = false;
+            continue;
+        }
+
+        // ---- 炸弹：触地爆炸（原版的飞机炸弹不参与掩体判定）----
+        if (b.kind == BLK_BOMB || b.kind == BLK_ENEMY_BOMB)
+        {
+            if (b.y >= (float)groundY)
+            {
+                b.alive = false;
+                explodeAt(b.x, b.y, b.damage, b.fromPlayer, 120.f);
+            }
+            continue;
+        }
+
+        // ---- 手雷：撞到掩体就哑掉（同原版：掩体挡手雷），落到地面才爆炸 ----
+        // 掩体判定必须排在地面判定前面，否则手雷永远先落地爆炸，撞掩体的分支形同虚设。
+        if (b.kind == BLK_GRENADE)
+        {
+            if (bulletHitsObstacle(b, prevY))
+            {
+                b.alive = false;
+                continue;
+            }
+            if (b.y >= (float)groundY)
+            {
+                b.alive = false;
+                explodeAt(b.x, b.y, b.damage, b.fromPlayer, 90.f);
+            }
+            continue;
+        }
+
+        // ---- 掩体优先（原版 checkZhangAiWu 在敌人判定之前执行）----
+        // 子弹打在油桶/沙袋上就停下，不会穿过去打死躲在后面的敌人。
+        // 不可破坏的沙袋也会挡子弹（原版沙袋同样会吃掉子弹）。
+        if (bulletHitsObstacle(b, prevY))
+        {
+            b.alive = false;
+            continue;
+        }
+
+        if (b.fromPlayer)
+        {
+            bool consumed = false;
+
+            for (size_t j = 0; j < enemies.size() && !consumed; ++j)
+            {
+                Enemy& e = enemies[j];
+                if (!e.alive) continue;
+                float l, t, r, bo;
+                enemyBox(e, l, t, r, bo);
+                if (b.x >= l && b.x <= r && b.y >= t && b.y <= bo)
+                {
+                    e.hp -= b.damage;
+                    e.flash = 6;
+                    spawnParticles(b.x, b.y, 5, RGB(255, 210, 130), 150.f, 3.f);
+                    spawnFx(3, b.x - 19.f, b.y - 10.f, false);
+                    if (e.hp <= 0)
+                        killEnemy(e);
+                    consumed = true;
+                }
+            }
+            if (consumed) { b.alive = false; continue; }
+
+            // ---- 命中 Boss ----
+            if (boss.state != BSS_NONE && boss.state != BSS_DIE && boss.state != BSS_DEAD)
+            {
+                const float bw = (float)g_assets.bossAttack[0].getwidth();
+                const float bh = (float)g_assets.bossAttack[0].getheight();
+                const float bl = boss.x + bw * 0.15f;
+                const float br = boss.x + bw * 0.85f;
+                const float bt = boss.y + bh * 0.15f;
+                const float bb = boss.y + bh * 0.90f;
+                if (b.x >= bl && b.x <= br && b.y >= bt && b.y <= bb)
+                {
+                    boss.hp -= b.damage;
+                    boss.flash = 6;
+                    spawnParticles(b.x, b.y, 6, RGB(255, 210, 130), 160.f, 3.f);
+                    spawnFx(3, b.x - 19.f, b.y - 10.f, false);
+                    consumed = true;
+                }
+            }
+            if (consumed) { b.alive = false; continue; }
+        }
+        else if (!player.inPlane)
+        {
+            float l, t, r, bo;
+            playerBox(player.x, player.y, l, t, r, bo);
+            if (b.x >= l && b.x <= r && b.y >= t && b.y <= bo)
+            {
+                damagePlayer(b.damage, b.x);
+                spawnParticles(b.x, b.y, 6, RGB(255, 90, 70), 160.f, 3.f);
+                b.alive = false;
+            }
+        }
+    }
+
+    // 统一回收（本帧标记为失效的实体在这里被移除，不会残留）
+    bullets.erase(remove_if(bullets.begin(), bullets.end(),
+                [](const Bullet& b) { return !b.alive; }), bullets.end());
+    enemies.erase(remove_if(enemies.begin(), enemies.end(),
+                [](const Enemy& e) { return !e.alive; }), enemies.end());
+}
+
+void Game::updateObstacles()
+{
+    for (size_t i = 0; i < obstacles.size(); ++i)
+        if (obstacles[i].flash > 0)
+            obstacles[i].flash--;
+}
+
+void Game::updateBoss(float dt)
+{
+    if (boss.state == BSS_NONE || boss.state == BSS_DEAD)
+        return;
+
+    if (boss.flash > 0)
+        boss.flash--;
+
+    // 狂暴：半血后进入
+    if (!boss.angry && boss.maxHp > 0 && boss.hp > 0 && boss.hp * 2 <= boss.maxHp)
+    {
+        boss.angry = true;
+        showToast(_T("BOSS 狂暴了！"));
+    }
+
+    // 血量归零 -> 死亡动画
+    if (boss.hp <= 0 && boss.state != BSS_DIE && boss.state != BSS_DEAD)
+    {
+        boss.state = BSS_DIE;
+        boss.atkTicks = 0;
+        boss.hp = 0;
+        spawnParticles(boss.x + 60.f, boss.y - 60.f, 30, RGB(255, 190, 90), 280.f, 6.f);
+        shake(12.f, 0.40f);
+    }
+
+    switch (boss.state)
+    {
+    case BSS_ENTER:
+        boss.x -= 45.f * dt;
+        boss.anim = (int)(frameClock / Cfg::ANIM_DIV) % 4;
+        if (boss.x <= levelWidth - 560.f)
+        {
+            boss.state = BSS_IDLE;
+            boss.cool = 60;
+        }
+        break;
+
+    case BSS_IDLE:
+        boss.anim = (int)(frameClock / Cfg::ANIM_DIV) % 4;
+        if (--boss.cool <= 0)
+        {
+            boss.state = BSS_ATTACK;
+            boss.atkTicks = 0;
+            boss.anim = 0;
+        }
+        break;
+
+    case BSS_ATTACK:
+    {
+        const int total = boss.angry ? 32 : 46;
+        boss.atkTicks++;
+        boss.anim = (boss.atkTicks * 10) / total;
+        if (boss.atkTicks == total / 2)
+        {
+            // 刀光判定
+            const float l = boss.x - 320.f;
+            const float r = boss.x - 30.f;
+            const float t = (float)groundY - 130.f;   // 覆盖玩家站立高度
+            const float b = (float)groundY + 40.f;
+            float pl, pt, pr, pb;
+            playerBox(player.x, player.y, pl, pt, pr, pb);
+            if (!player.inPlane && pr > l && pl < r && pb > t && pt < b)
+                damagePlayer(2, boss.x);
+            spawnParticles(boss.x - 140.f, (float)groundY - 90.f, 14, RGB(255, 255, 255), 240.f, 5.f);
+            shake(7.f, 0.20f);
+        }
+        if (boss.atkTicks >= total)
+        {
+            boss.state = BSS_IDLE;
+            boss.anim = 0;
+            boss.cool = boss.angry ? 45 : 90;
+        }
+        break;
+    }
+
+    case BSS_DIE:
+        boss.anim = boss.atkTicks;
+        if (++boss.atkTicks >= 5)
+        {
+            boss.state = BSS_DEAD;
+            boss.hp = 0;
+            score += 3000;
+            spawnParticles(boss.x + 60.f, boss.y - 60.f, 40, RGB(255, 190, 90), 320.f, 7.f);
+            shake(16.f, 0.6f);
+            oldMan.active = true;
+            oldMan.freed = false;
+            oldMan.x = boss.x - 30.f;
+            oldMan.y = (float)groundY;
+            oldMan.anim = 0;
+            showToast(_T("BOSS 已击败！去解救老人"));
+        }
+        break;
+
+    default:
+        break;
+    }
+}
+
+void Game::updateCamera()
+{
+    const float maxX = levelWidth - (float)screenW;
+    float target = player.x - (float)screenW * 0.38f;
+    target = clampf(target, 0.f, (maxX > 0.f) ? maxX : 0.f);
+    cameraX = lerpf(cameraX, target, 0.22f);
+    if (maxX <= 0.f) cameraX = 0.f;
+}
+
+void Game::updateParticles(float dt)
+{
+    for (size_t i = 0; i < particles.size(); ++i)
+    {
+        Particle& p = particles[i];
+        if (!p.alive) continue;
+        p.vy += p.gravity * dt;
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        p.life -= dt;
+        if (p.life <= 0.f)
+            p.alive = false;
+    }
+    particles.erase(remove_if(particles.begin(), particles.end(),
+                [](const Particle& p) { return !p.alive; }), particles.end());
+}
+
+void Game::updateFx()
+{
+    for (size_t i = 0; i < fx.size(); ++i)
+    {
+        FxAnim& f = fx[i];
+        if (!f.alive) continue;
+        f.frame++;
+        const int total = (f.set == 0) ? 5 : ((f.set == 3) ? 2 : 8);
+        if (f.frame >= total)
+            f.alive = false;
+    }
+    fx.erase(remove_if(fx.begin(), fx.end(),
+                [](const FxAnim& f) { return !f.alive; }), fx.end());
+}
+
+void Game::fireWeapon()
+{
+    Player& p = player;
+    if (p.fireCooldown > 0)
+        return;
+
+    float mx, my;
+    muzzlePos(mx, my);
+    const float ang = aimAngle();
+    const float ca = (float)cos(ang);
+    const float sa = (float)sin(ang);
+
+    if (p.weapon == WP_CANNON)
+    {
+        spawnBullet(BLK_CANNON, mx, my, ca * Cfg::CANNON_SPEED, sa * Cfg::CANNON_SPEED,
+                    Cfg::CANNON_DAMAGE, true);
+        p.fireCooldown = Cfg::PLAYER_CANNON_CD;
+        p.cannonAmmo--;
+        if (p.cannonAmmo <= 0)
+        {
+            p.cannonAmmo = 0;
+            p.weapon = WP_RIFLE;
+            showToast(_T("炮弹已耗尽"));
+        }
+    }
+    else
+    {
+        spawnBullet(BLK_RIFLE, mx, my, ca * Cfg::RIFLE_SPEED, sa * Cfg::RIFLE_SPEED,
+                    Cfg::RIFLE_DAMAGE, true);
+        p.fireCooldown = Cfg::PLAYER_RIFLE_CD;
+    }
+    p.muzzleFlash = Cfg::MUZZLE_FRAMES;
+}
+
+void Game::killEnemy(Enemy& e)
+{
+    if (!e.alive) return;
+    e.alive = false;
+    kills++;
+    score += kEnemySpec[e.kind].score;
+    const IMAGE& img = g_assets.enemy[e.kind][0];
+    spawnFx(rng.range(0, 1), e.x, e.y, e.faceRight);
+    spawnParticles(e.x + (float)img.getwidth() * 0.5f, e.y + (float)img.getheight() * 0.45f,
+                   16, RGB(210, 40, 40), 190.f, 4.f);
+    shake(4.f, 0.14f);
+}
+
+void Game::damagePlayer(int dmg, float fromX)
+{
+    Player& p = player;
+    if (p.inPlane) return;          // 机上安全
+    if (p.invuln > 0) return;
+    if (phase != PH_PLAY) return;
+
+    p.hp -= dmg;
+    p.invuln = Cfg::PLAYER_INVULN;
+    const float dir = (p.x < fromX) ? -1.f : 1.f;
+    p.x += dir * 16.f;
+    shake(9.f, 0.26f);
+    spawnParticles(p.x + 30.f, p.y + 30.f, 12, RGB(255, 90, 70), 180.f, 4.f);
+    if (p.hp <= 0)
+    {
+        p.hp = 0;
+        showToast(_T("任务失败"));
+    }
+}
+
+bool Game::canInteract() const
+{
+    if (player.inPlane) return false;
+    if (plane.available && !plane.carried &&
+        fabsf_(player.x - plane.x) < 95.f && player.y >= (float)groundY - 90.f)
+        return true;
+    if (oldMan.active && !oldMan.freed && fabsf_(player.x - oldMan.x) < 95.f)
+        return true;
+    return false;
+}
+
+float Game::interactX() const
+{
+    if (plane.available && !plane.carried && fabsf_(player.x - plane.x) < 95.f)
+        return plane.x;
+    if (oldMan.active && !oldMan.freed)
+        return oldMan.x;
+    return player.x;
+}
+
+// ============================================================================
+//  9. 绘制
+// ============================================================================
+
+void Game::draw()
+{
+    const int sx = (int)shakeX;
+    const int sy = (int)shakeY;
+
+    cleardevice();
+
+    switch (phase)
+    {
+    case PH_SPLASH:
+        putimage(0, 0, &g_assets.splash);
+        break;
+    case PH_MENU:       drawMenu(); break;
+    case PH_ROUND_SEL:  drawRoundSelect(); break;
+    default:
+        drawWorld(sx, sy);
+        drawHud();
+        drawToast();
+        if (phase == PH_CLEAR)
+        {
+            TCHAR buf[64];
+            tsprintf(buf, 64, _T("关卡完成！按 回车 继续"));
+            outtextxy((screenW - 320) / 2, (int)(screenH * 0.30f), buf);
+        }
+        if (phase == PH_WIN || phase == PH_OVER)
+            drawEndScreen();
+        break;
+    }
+
+    FlushBatchDraw();
+}
+
+void Game::drawMenu()
+{
+    putimage(0, 0, &g_assets.menu);
+    putimagePng((int)(screenW * 0.40f), (int)(screenH * 0.50f), &g_assets.modeNormal);
+    putimagePng((int)(screenW * 0.60f), (int)(screenH * 0.50f), &g_assets.modeEndless);
+
+    const int selX = (menuSel == 0)
+        ? (int)(screenW * 0.40f) + 30
+        : (int)(screenW * 0.60f) + 30;
+    putimagePng(selX, (int)(screenH * 0.50f) - 50, &g_assets.select);
+
+    outtextxy((int)(screenW * 0.03f), (int)(screenH * 0.88f), _T("空格 切换模式    回车 确认"));
+    outtextxy((int)(screenW * 0.03f), (int)(screenH * 0.92f), _T("WASD 移动   鼠标瞄准   左键射击   E 交互"));
+}
+
+void Game::drawRoundSelect()
+{
+    putimage(0, 0, &g_assets.menu);
+    putimagePng((int)(screenW * 0.40f), (int)(screenH * 0.50f), &g_assets.modeNormal);
+    putimagePng((int)(screenW * 0.40f) + 30, (int)(screenH * 0.50f) - 50, &g_assets.select);
+
+    for (int i = 0; i < 3; ++i)
+        putimagePng((int)((0.30f + 0.20f * i) * screenW), (int)(screenH * 0.70f), &g_assets.roundBadge[i]);
+
+    const int selX = (int)((0.30f + 0.20f * roundSel) * screenW) + 30;
+    putimagePng(selX, (int)(screenH * 0.70f) - 50, &g_assets.select);
+
+    outtextxy((int)(screenW * 0.03f), (int)(screenH * 0.88f), _T("空格 切换关卡    回车 开始    ESC 返回"));
+}
+
+void Game::drawWorld(int sx, int sy)
+{
+    const int camX = (int)cameraX;
+
+    // ---- 背景 ----
+    putimage(sx - camX, sy, &g_assets.bg[level]);
+
+    // ---- 障碍 ----
+    for (size_t i = 0; i < obstacles.size(); ++i)
+    {
+        const Obstacle& o = obstacles[i];
+        if (!o.alive) continue;
+        const int ix = sx + (int)o.x - camX;
+        if (ix < -220 || ix > screenW + 220) continue;
+        if (o.destructible)
+        {
+            // 油桶被打伤后换成破损贴图
+            const bool broken = (o.hp * 2 <= o.maxHp);
+            putimagePngFlash(ix, sy + (int)o.y,
+                             broken ? &g_assets.barrelBroken : &g_assets.barrel,
+                             o.flash > 0 ? 190 : 0);
+        }
+        else
+            putimagePng(ix, sy + (int)o.y, &g_assets.sandbag);
+    }
+
+    // ---- 敌人 ----
+    for (size_t i = 0; i < enemies.size(); ++i)
+    {
+        const Enemy& e = enemies[i];
+        if (!e.alive) continue;
+        const int count = g_assets.enemyCount[e.kind];
+        if (count <= 0) continue;
+        int frame = e.anim % count;
+        if (frame < 0) frame = 0;
+        IMAGE* img = &g_assets.enemy[e.kind][frame];
+        const int ix = sx + (int)e.x - camX;
+        if (ix < -320 || ix > screenW + 320) continue;
+        const bool flip = (e.faceRight != kEnemySpec[e.kind].artFacesRight);
+        const int flash = (e.flash > 0) ? 210 : 0;
+        if (flip)
+            putToggleImagePngFlash(ix, sy + (int)e.y, img, flash);
+        else
+            putimagePngFlash(ix, sy + (int)e.y, img, flash);
+    }
+
+    // ---- Boss ----
+    if (boss.state != BSS_NONE && boss.state != BSS_DEAD)
+    {
+        IMAGE* img = nullptr;
+        if (boss.state == BSS_DIE)
+            img = &g_assets.bossDie[clampi(boss.atkTicks, 0, 4)];
+        else if (boss.state == BSS_ATTACK)
+            img = &g_assets.bossAttack[clampi(boss.anim, 0, 9)];
+        else if (boss.angry)
+            img = &g_assets.bossAnger[(int)(frameClock / Cfg::ANIM_DIV) % 2];
+        else
+            img = &g_assets.bossStand[clampi(boss.anim, 0, 3)];
+
+        const int ix = sx + (int)boss.x - camX;
+        if (ix > -400 && ix < screenW + 400)
+            putimagePngFlash(ix, sy + (int)boss.y, img, boss.flash > 0 ? 200 : 0);
+    }
+
+    // ---- 老人 ----
+    if (oldMan.active)
+    {
+        const int ix = sx + (int)oldMan.x - camX;
+        const int iy = sy + (int)oldMan.y;
+        if (oldMan.freed)
+            putimagePng(ix, iy, &g_assets.oldManFree[(int)(frameClock / Cfg::ANIM_DIV) % 4]);
+        else
+            putimagePng(ix, iy, &g_assets.oldManBound[(int)(frameClock / Cfg::ANIM_DIV) % 3]);
+    }
+
+    // ---- 子弹 ----
+    for (size_t i = 0; i < bullets.size(); ++i)
+    {
+        const Bullet& b = bullets[i];
+        const int ix = sx + (int)b.x - camX;
+        const int iy = sy + (int)b.y;
+        const bool left = (b.vx < 0.f);
+        switch (b.kind)
+        {
+        case BLK_RIFLE:
+            if (left) putToggleImagePng(ix, iy, &g_assets.bulletPlayer);
+            else      putimagePng(ix, iy, &g_assets.bulletPlayer);
+            break;
+        case BLK_CANNON:
+            if (left) putToggleImagePng(ix, iy, &g_assets.bulletHeavy);
+            else      putimagePng(ix, iy, &g_assets.bulletHeavy);
+            break;
+        case BLK_ENEMY_RIFLE:
+            putimagePng(ix, iy, &g_assets.bulletEnemyRifle);
+            break;
+        case BLK_ENEMY_ROCKET:
+            if (left) putToggleImagePng(ix, iy, &g_assets.bulletEnemyRocket);
+            else      putimagePng(ix, iy, &g_assets.bulletEnemyRocket);
+            break;
+        case BLK_GRENADE:
+            putimagePng(ix, iy, &g_assets.bulletGrenade);
+            break;
+        default:
+            putimagePng(ix, iy, &g_assets.planeBomb);
+            break;
+        }
+    }
+
+    // ---- 玩家飞机 ----
+    if (plane.available)
+    {
+        const int ix = sx + (int)plane.x - camX;
+        const int iy = sy + (int)plane.y;
+        if (player.faceRight)
+            putimagePng(ix, iy, &g_assets.planePlayer);
+        else
+            putToggleImagePng(ix, iy, &g_assets.planePlayer);
+    }
+
+    // ---- 主角 ----
+    if (!player.inPlane)
+    {
+        const int tier = (player.muzzleFlash > 0) ? BT_HEAVY : BT_NORMAL;
+        const int bc = g_assets.playerBodyCount[tier][player.weapon];
+        const int fc = g_assets.playerFootCount[player.stance];
+        if (bc > 0 && fc > 0)
+        {
+            const int anim = (int)(frameClock / Cfg::ANIM_DIV);
+            IMAGE* body = &g_assets.playerBody[tier][player.weapon][anim % bc];
+            IMAGE* foot = &g_assets.playerFoot[player.stance][anim % fc];
+            const int ix = sx + (int)player.x - camX;
+            const int iy = sy + (int)player.y;
+            const int fy = iy + body->getheight() - Cfg::FOOT_OVERLAP;
+            // 主角素材本身朝左，朝右时需要镜像
+            const int flash = (player.invuln > 0 && ((frameClock / 3) & 1)) ? 150 : 0;
+            if (player.faceRight)
+            {
+                putToggleImagePngFlash(ix, iy, body, flash);
+                putToggleImagePngFlash(ix, fy, foot, flash);
+            }
+            else
+            {
+                putimagePngFlash(ix, iy, body, flash);
+                putimagePngFlash(ix, fy, foot, flash);
+            }
+        }
+    }
+
+    // ---- 特效动画 ----
+    for (size_t i = 0; i < fx.size(); ++i)
+    {
+        const FxAnim& f = fx[i];
+        IMAGE* img = nullptr;
+        if (f.set == 0)      img = &g_assets.deathA[clampi(f.frame, 0, 4)];
+        else if (f.set == 1) img = &g_assets.deathB[clampi(f.frame, 0, 7)];
+        else if (f.set == 2) img = &g_assets.bombBoom[clampi(f.frame, 0, 7)];
+        else                 img = &g_assets.impact;
+        const int ix = sx + (int)f.x - camX;
+        if (ix < -300 || ix > screenW + 300) continue;
+        if (f.flip) putToggleImagePng(ix, sy + (int)f.y, img);
+        else        putimagePng(ix, sy + (int)f.y, img);
+    }
+
+    // ---- 粒子 ----
+    for (size_t i = 0; i < particles.size(); ++i)
+    {
+        const Particle& p = particles[i];
+        const float k = clampf(p.life / p.maxLife, 0.f, 1.f);
+        const int s = (int)(p.size * (0.35f + 0.65f * k));
+        if (s <= 0) continue;
+        const int ix = sx + (int)p.x - camX;
+        const int iy = sy + (int)p.y;
+        setfillcolor(p.color);
+        fillrectangle(ix - s / 2, iy - s / 2, ix + s / 2, iy + s / 2);
+    }
+    setfillcolor(RGB(255, 255, 255));
+
+    // ---- 交互提示 ----
+    if (canInteract())
+    {
+        const int ix = sx + (int)interactX() - camX;
+        const int iy = sy + groundY - 150 + (int)(4.0f * (float)sin((float)frameClock * 0.12f));
+        putimagePng(ix - 10, iy, &g_assets.letterE);
+    }
+}
+
+void Game::drawHud()
+{
+    TCHAR buf[64];
+
+    // ---- 血条 ----
+    const int barX = 26, barY = 24, barW = 300, barH = 20;
+    setlinecolor(RGB(0, 0, 0));
+    setfillcolor(RGB(18, 18, 18));
+    fillrectangle(barX - 3, barY - 3, barX + barW + 3, barY + barH + 3);
+
+    const int hp = clampi(player.hp, 0, Cfg::PLAYER_MAX_HP);
+    setfillcolor(hp > 40 ? RGB(40, 200, 90) : (hp > 15 ? RGB(240, 200, 40) : RGB(230, 60, 50)));
+    fillrectangle(barX, barY, barX + (barW * hp) / Cfg::PLAYER_MAX_HP, barY + barH);
+
+    setlinecolor(RGB(255, 255, 255));
+    for (int i = 1; i < 4; ++i)
+    {
+        const int tx = barX + (barW * i) / 4;
+        line(tx, barY, tx, barY + barH);
+    }
+
+    tsprintf(buf, 64, _T("HP %d / %d"), hp, Cfg::PLAYER_MAX_HP);
+    outtextxy(barX, barY + barH + 8, buf);
+
+    // ---- 武器 ----
+    if (player.weapon == WP_CANNON)
+        tsprintf(buf, 64, _T("武器 炮台   弹药 %d"), player.cannonAmmo);
+    else
+        tsprintf(buf, 64, _T("武器 步枪   弹药 无穷"));
+    outtextxy(barX, barY + barH + 32, buf);
+
+    // ---- 右上角统计 ----
+    tsprintf(buf, 64, _T("分数 %d"), score);
+    outtextxy(screenW - 220, barY, buf);
+    tsprintf(buf, 64, _T("击杀 %d"), kills);
+    outtextxy(screenW - 220, barY + 26, buf);
+    tsprintf(buf, 64, _T("波次 %d"), waveIndex);
+    outtextxy(screenW - 220, barY + 52, buf);
+    if (!endless)
+        tsprintf(buf, 64, _T("第 %d 关"), round + 1);
+    else
+        tsprintf(buf, 64, _T("无尽模式  Boss %d"), bossCount);
+    outtextxy(screenW - 220, barY + 78, buf);
+
+    // ---- Boss 血条 ----
+    if (boss.state != BSS_NONE && boss.state != BSS_DEAD && boss.maxHp > 0)
+    {
+        const int bw = 560, bx = (screenW - bw) / 2, by = 46;
+        setlinecolor(RGB(0, 0, 0));
+        setfillcolor(RGB(18, 18, 18));
+        fillrectangle(bx - 3, by - 3, bx + bw + 3, by + 18);
+        setfillcolor(boss.angry ? RGB(240, 90, 50) : RGB(200, 40, 50));
+        fillrectangle(bx, by, bx + (bw * clampi(boss.hp, 0, boss.maxHp)) / boss.maxHp, by + 15);
+        settextcolor(RGB(255, 80, 80));
+        outtextxy(bx, by - 24, _T("BOSS"));
+        settextcolor(RGB(255, 255, 255));
+    }
+
+    // ---- 关卡进度条 ----
+    const int pW = screenW - 240, pX = 120, pY = screenH - 40;
+    setlinecolor(RGB(0, 0, 0));
+    setfillcolor(RGB(18, 18, 18));
+    fillrectangle(pX - 3, pY - 3, pX + pW + 3, pY + 14);
+    setfillcolor(RGB(80, 140, 230));
+    const float prog = clampf(player.x / (levelWidth > 1.f ? levelWidth : 1.f), 0.f, 1.f);
+    fillrectangle(pX, pY, pX + (int)(pW * prog), pY + 11);
+
+    // Boss 位置标记
+    {
+        const float bx = (boss.state != BSS_NONE) ? boss.x : levelWidth - 560.f;
+        const int mx = pX + (int)(pW * clampf(bx / (levelWidth > 1.f ? levelWidth : 1.f), 0.f, 1.f));
+        setfillcolor(RGB(240, 70, 70));
+        fillrectangle(mx - 4, pY - 4, mx + 4, pY + 15);
+    }
+
+    outtextxy(pX, pY + 22, _T("1 步枪   2 炮台   E 交互   空格 投弹"));
+}
+
+void Game::drawToast()
+{
+    if (!toast.active) return;
+    const int a = (int)(255.f * clampf(toast.life, 0.f, 1.f));
+    settextcolor(RGB(a, a, a));
+    outtextxy((screenW - 360) / 2, (int)(screenH * 0.16f), toast.text);
+    settextcolor(RGB(255, 255, 255));
+}
+
+void Game::drawEndScreen()
+{
+    IMAGE* img = (phase == PH_WIN) ? &g_assets.win : &g_assets.fail;
+    putimage((screenW - img->getwidth()) / 2, (screenH - img->getheight()) / 2 - 90, img);
+
+    TCHAR buf[64];
+    tsprintf(buf, 64, _T("最终得分 %d"), score);
+    outtextxy((screenW - 160) / 2, (screenH + img->getheight()) / 2 + 20, buf);
+    tsprintf(buf, 64, _T("击杀数 %d"), kills);
+    outtextxy((screenW - 160) / 2, (screenH + img->getheight()) / 2 + 52, buf);
+    outtextxy((screenW - 280) / 2, (screenH + img->getheight()) / 2 + 92, _T("按 回车 返回主菜单"));
+}
+
+// ============================================================================
+//  10. 入口
+// ============================================================================
+
+#ifndef METAL_SLUG_NO_MAIN
 int main()
 {
-	calScreenSize();
-	startup(); // 初始化
-	beforeshow();
-	mciSendString(_T("open Market.mp3 alias bkmusic"), NULL, 0, NULL);
-	mciSendString(_T("play bkmusic repeat"), NULL, 0, NULL);
-	while (1)
-	{
-		while (page == 0)
-		{
-			putimage(0, 0, &IM_MENU);
-			putimagePng(0.4 * WIDTH, 0.5 * HEIGHT, &PUTONGMS);
-			putimagePng(0.6 * WIDTH, 0.5 * HEIGHT, &WUJINGMS);
-			if (mode == 0)
-			{
-				putimagePng(0.4 * WIDTH + 30, 0.5 * HEIGHT - 50, &SELECT);
-			}
-			else
-			{
-				putimagePng(0.6 * WIDTH + 30, 0.5 * HEIGHT - 50, &SELECT);
-			}
-			FlushBatchDraw(); // 批量绘制
-			if (_kbhit())	  //	If a key is pressed
-			{
-				char key;
-				key = _getch(); //	Obtain key info
-				if (GetAsyncKeyState(' '))
-				{
-					mode = 1 - mode;
-				}
-				if (GetAsyncKeyState(VK_RETURN))
-				{
-					if (mode == 0)
-						page = 1;
-					else
-					{
-						page = 2;
-					}
-				}
-			}
-			Sleep(100); // 暂停
-		}
-		while (page == 1 && mode == 0)
-		{
-			putimage(0, 0, &IM_MENU);
-			putimagePng(0.4 * WIDTH, 0.5 * HEIGHT, &PUTONGMS);
-			putimagePng(0.6 * WIDTH, 0.5 * HEIGHT, &WUJINGMS);
-			putimagePng(0.4 * WIDTH + 30, 0.5 * HEIGHT - 50, &SELECT);
-			putimagePng(0.3 * WIDTH, 0.7 * HEIGHT, &IM_ROUND1);
-			putimagePng(0.5 * WIDTH, 0.7 * HEIGHT, &IM_ROUND2);
-			putimagePng(0.7 * WIDTH, 0.7 * HEIGHT, &IM_ROUND3);
-			if (roundnum == 0)
-			{
-				putimagePng(0.3 * WIDTH + 30, 0.7 * HEIGHT - 50, &SELECT);
-			}
-			else if (roundnum == 1)
-			{
-				putimagePng(0.5 * WIDTH + 30, 0.7 * HEIGHT - 50, &SELECT);
-			}
-			else
-			{
-				putimagePng(0.7 * WIDTH + 30, 0.7 * HEIGHT - 50, &SELECT);
-			}
-			FlushBatchDraw(); // 批量绘制
-			if (_kbhit())	  //	If a key is pressed
-			{
-				char key;
-				key = _getch(); //	Obtain key info
-				if (GetAsyncKeyState(' '))
-				{
-					roundnum = (roundnum + 1) % 3;
-				}
-				if (GetAsyncKeyState(VK_RETURN))
-				{
-					page = 2;
-					refreshAllNum();
-				}
-				if (GetAsyncKeyState(VK_ESCAPE))
-				{
-					page = 0;
-				}
-			}
-			Sleep(100); // 暂停
-		}
-		while (page == 2)
-		{
-			if (mode == 0) {
-				while (zj.life > 0 && finshedtime < 20) // 重复运行
-				{
-					if (changeFlag == true)
-					{
-						finshedtime++;
-					}
-					IsPressKey();
-					check();
-					if (Bosscxg == true)
-						bosscheck();
-					else
-					{
-						if (stoptime > 0)
-						{
-							stoptime--;
-						}
-						else
-						{
-							stoptime = stopTime;
-							xiaobingCheck();
-						}
-					}
-					checkLetterE();
-					show(); // 绘制
-					zj.shot = 0;
-					int tmppos = zj.pos;
-					if (zj.y >= groundy && is_feiji == false)
-					{
-						zj.changexy(zj.x, groundy);
-						// pos: 0 is left, 1 is right, 2 is left jump,  3 is right jump, 4 is left down, 5 is right down, 6 is left stand, 7 is right stand
-						if ((tmppos == 0 || tmppos == 2 || tmppos == 4 || tmppos == 6))
-						{
-							zj.pos = 6;
-						}
-						else
-						{
-							zj.pos = 7;
-						}
-					}
-				}
-				while (page == 2)
-				{
-					if (zj.life > 0)
-					{
-						putimagePng(WIDTH * 0.4, HEIGHT * 0.4, &WIN);
-						FlushBatchDraw(); // 批量绘制
-						Sleep(100);		  // 暂停
-					}
-					else
-					{
-						putimage(WIDTH * 0.4, HEIGHT * 0.4, &FAIL);
-						FlushBatchDraw(); // 批量绘制
-						Sleep(100);		  // 暂停
-					}
-					if (_kbhit()) //	If a key is pressed
-					{
-						char key;
-						key = _getch(); //	Obtain key info
-						if (GetAsyncKeyState(VK_RETURN))
-						{
-							if (mode == 0)
-								page = 1;
-							else
-							{
-								page = 0;
-							}
-							break;
-						}
-					}
-				}
-				_getch();
-			}
-			else
-			{
-				while (zj.life > 0)
-				{
-					IsPressKey();
-					check();
-					if (isAllDied() == true)
-					{
-						roundtruekillnum++;
-						int tmp = rand() % 5;
-						if (tmp == 0)
-						{
-							adddaoshou(rand() % 3);
-						}
-						else if (tmp == 1)
-						{
-							addqiangshou(rand() % 3);
-						}
-						else if (tmp == 2)
-						{
-							addldps(rand() % 3);
-						}
-						else if (tmp == 3)
-						{
-							addrsld(rand() % 3);
-						}
-						else if (tmp == 4)
-						{
-							addfeiji(rand() % 2);
-						}
-					}
-					show();
-					zj.shot = 0;
-					int tmppos = zj.pos;
-					if (zj.y >= groundy && is_feiji == false)
-					{
-						zj.changexy(zj.x, groundy);
-						// pos: 0 is left, 1 is right, 2 is left jump,  3 is right jump, 4 is left down, 5 is right down, 6 is left stand, 7 is right stand
-						if ((tmppos == 0 || tmppos == 2 || tmppos == 4 || tmppos == 6))
-						{
-							zj.pos = 6;
-						}
-						else
-						{
-							zj.pos = 7;
-						}
-					}
-				}
-			}
-		}
-	}
-	return 0;
+    g_game.init();
+
+    initgraph(g_game.screenW, g_game.screenH);
+    BeginBatchDraw();
+    setbkmode(TRANSPARENT);
+
+    mciSendString(_T("open Market.mp3 alias bkmusic"), NULL, 0, NULL);
+    mciSendString(_T("play bkmusic repeat"), NULL, 0, NULL);
+
+    // 固定步长逻辑 + 独立渲染
+    const double target = 1000.0 / (double)Cfg::LOGIC_HZ;
+    LARGE_INTEGER freq, last, now;
+    QueryPerformanceFrequency(&freq);
+    QueryPerformanceCounter(&last);
+    double acc = 0.0;
+
+    while (true)
+    {
+        QueryPerformanceCounter(&now);
+        double dt = (double)(now.QuadPart - last.QuadPart) / (double)freq.QuadPart;
+        last = now;
+        if (dt > 0.25) dt = 0.25;      // 卡顿后不要暴走
+        acc += dt;
+
+        int guard = 0;
+        while (acc >= target && guard < 8)
+        {
+            g_game.update();
+            acc -= target;
+            ++guard;
+        }
+        if (guard >= 8) acc = 0.0;
+
+        g_game.draw();
+        FlushBatchDraw();
+        Sleep(1);
+    }
+
+    EndBatchDraw();
+    closegraph();
+    return 0;
 }
+#endif
